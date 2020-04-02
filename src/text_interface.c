@@ -4,10 +4,8 @@
 #include <stdlib.h>
 
 #define HEADER_COLOR 1
-#define _DEBUG 1
 
 typedef struct _WIN_struct {
-
 	int startx, starty;
 	int height, width;
 } WIN;
@@ -17,22 +15,23 @@ void print_win_params(WIN *p_win);
 void create_box(WIN *win, bool flag);
 
 //TODO: ir sumindo com as colunas da direita conforme a janela for sendo reduzida
-int main(void)
-{	   
-    WINDOW *process_list_window; 
+int main(int argc, char *argv[])
+{	
+	char *shared = (char*) atoll(argv[1]);
+	
+    //WINDOW *process_list_window; 
     WIN win;
     //int screen_rows, screen_columns;
-    int startx, starty, width, height;
     int ch; 
 
-	initscr();			/* Start curses mode */
-    cbreak();           /* Line buffering disabled */
-    noecho();           /* Don't echo while we do getch() */
-    keypad(stdscr, TRUE); /* enables keypad to use the arrow keys to scroll on the process list */
+	initscr();			  // Start curses mode 
+    cbreak();             // Line buffering disabled 
+    noecho();             // Don't echo while we do getch() 
+    keypad(stdscr, TRUE); // enables keypad to use the arrow keys to scroll on the process list 
     start_color();
     init_pair(HEADER_COLOR, COLOR_BLACK, COLOR_WHITE);
 
-    /* Initialize the window parameters */
+    //Initialize the window parameters 
 	init_win_params(&win);
 	print_win_params(&win);
 
@@ -40,14 +39,15 @@ int main(void)
 
     //SEGUNDO: escrever o header PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
 	attron(COLOR_PAIR(HEADER_COLOR));
-	printw("PUT HEADER HERE");
+	printw("PID USER PR NI VIRT RES SHR S %%CPU %%MEM TIME+ COMMAND");
+	//TODO: preencher header com vazio até o fim da linha...
 	refresh();
 	attroff(COLOR_PAIR(HEADER_COLOR));
 	
 	//TERCEIRO: POPULAR LISTA INICIALMENTE COM OS 15 PRIMEIROS PIDs com maior uso de CPU
-
+	
     //QUARTO: VERIFICAÇÃO DE BUFFER PARA COMANDOS COMO KILL, SCROLL UP E SCROLL DOWN
-	while((ch = getch()) != KEY_F(1))
+	while((ch = getch()) != 'q')
 	{	
         switch(ch)
 		{	
@@ -57,11 +57,27 @@ int main(void)
 				break;
 			case KEY_DOWN:
 				++win.starty;
-				break;	
+				break;
+			case KEY_LEFT:
+				--win.startx;
+				break;
+			case KEY_RIGHT:
+				++win.startx;
+				break;
+			case 'k':
+				printw("Entrou no kill");
+				refresh();
+				break;
+			default:
+				break;
 		}
 	}
 
-	endwin(); /* End curses mode		  */
+	//Seta a flag de kill
+	
+	endwin(); // End curses mode
+	
+	shared[0] = 1;
 
 	return 0;
 }
@@ -84,14 +100,14 @@ void print_win_params(WIN *p_win)
 }
 
 void create_line(WIN *p_win)
-{	int i, j;
-	int x, y, w, h;
+{	
+	//int i, j;
+	//int x, y, w, h;
 
-	x = p_win->startx;
-	y = p_win->starty;
-	w = p_win->width;
-	h = p_win->height;
+	//x = p_win->startx;
+	//y = p_win->starty;
+	//w = p_win->width;
+	//h = p_win->height;
 				
 	refresh();
-
 }
