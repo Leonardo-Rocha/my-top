@@ -3,6 +3,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define SHARED_MEM_SIZE      63489
+#define SHARED_MEM_KEY       56373
+#define SHARED_MEM_FLAGS     S_IRWXG | S_IRWXU | S_ISUID | IPC_CREAT
+
 #define HEADER_COLOR 1
 
 typedef struct _WIN_struct {
@@ -65,7 +69,7 @@ int main(int argc, char *argv[])
 				++win.startx;
 				break;
 			case 'k':
-				printw("Entrou no kill");
+				printw("Entrou no kill : %c", shared[1]);
 				refresh();
 				break;
 			default:
@@ -77,7 +81,8 @@ int main(int argc, char *argv[])
 	
 	endwin(); // End curses mode
 	
-	shared[0] = 1;
+	// tells the other programs that text_interface has ended
+	memcpy(shared, "\x01", sizeof(char));
 
 	return 0;
 }

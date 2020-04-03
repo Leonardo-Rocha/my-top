@@ -56,6 +56,3 @@ build/*
 
 # Vscode files
 .vscode/*
-
-# reference file
-shell_to_be_completed.c
