@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
 
     //SEGUNDO: escrever o header PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND
 	attron(COLOR_PAIR(HEADER_COLOR));
-	printw("PID USER PR NI VIRT RES SHR S %%CPU %%MEM TIME+ COMMAND");
+	printw("PID USER PR NI S %%CPU TIME+ COMMAND");
 	//TODO: preencher header com vazio até o fim da linha...
 	refresh();
 	attroff(COLOR_PAIR(HEADER_COLOR));
