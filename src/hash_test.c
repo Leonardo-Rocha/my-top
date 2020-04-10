@@ -2,7 +2,16 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <math.h>
 #include "hashtable.h"
+
+static int compare (const void * a, const void * b) 
+{
+    int x = *(float *)a * 100;
+    int y = *(float *)b * 100;
+
+    return x - y; 
+}
 
 int main(void)
 {
@@ -54,6 +63,20 @@ int main(void)
     hash_insert_update(test2);
     assert(!strcmp((char *) hash_table[0].data, "Z"));
     assert(!strcmp((char *) hash_find(9)->data, "Z"));
+    
+    float values[] = { 88.2, 56.42, 95.12, 2.32, 25.21 , 25.22};
+
+    printf("Before sorting the list is: \n");
+    for(int i = 0; i < 6; i++ ) 
+        printf("%.2f ", values[i]);
+    
+    qsort(values, 6, sizeof(float), compare);
+
+    printf("\nAfter sorting the list is: \n");
+    for(int i = 0; i < 6; i++ ) 
+        printf("%.2f ", values[i]);
+
+    printf("\n");
 
     return 0;
 }

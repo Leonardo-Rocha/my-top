@@ -6,7 +6,7 @@ hash_entry* hash_table;
 int hash_size;
 
 
-int get_hash_code(int key) { return key % hash_size; }
+int get_hash_code(int key) { return hash_size == 0 ? 0 : key % hash_size; }
 
 hash_entry* hash_create(int size)
 {

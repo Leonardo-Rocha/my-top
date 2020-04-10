@@ -6,19 +6,39 @@
 #include <stdlib.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
+#include "hashtable.h"
+#include <unistd.h>
 
 #define PROC_DIR "/proc"
 #define STAT_DIR "/stat"
 #define PROC_STAT_PATH "/proc/stat"
 #define TRASH_SIZE 10
 #define BUFFER_SIZE 200
+#define ACCESS_POINT_MAX 100
+#define HASH_TABLE_MAX   600
 
 typedef struct
 {
    long unsigned int user_time;
    long unsigned int kernel_time;
-   long long unsigned int start_time;
 } time_info;
+
+typedef struct 
+{
+    // the moment where it was accessed
+    unsigned short access_point; 
+    time_info proc_time_info;
+} hash_data;
+
+typedef struct 
+{
+    unsigned int valid_counter;
+    unsigned int running_counter;
+    unsigned int sleeping_counter;
+    unsigned int stopped_counter;
+    unsigned int zombie_counter;
+} task_counter;
+
 
 typedef struct 
 {
@@ -26,7 +46,8 @@ typedef struct
     time_info previous_time;    
 } procs_time_samples;
 
-typedef struct  process_info{
+typedef struct process_info
+{
     pid_t pid;
     char user_name[32];
     char state;
@@ -40,58 +61,161 @@ typedef struct  process_info{
 
 char error_buffer[BUFFER_SIZE];
 
-process_info** proc_table_generator(int *num_valid_procs);
-process_info * read_proc_stat(const char * stat_file);
-char * get_stat_file_path(char * entry_name, int proc_dir_length, int stat_dir_length);
-int handle_file_open(FILE **file_stream, const char* mode, const char *file_name);
-void clear_table(process_info ** process, int table_size);
+/* This method returns a list of process_info and updates the task counter. */
+process_info** proc_table_generator(task_counter *tasks, unsigned short access_point);
 
-/* This method returns a list of process_info*/
+/* Read the stat of a single process and return it if was successful. Returns null otherwise. */
+process_info* read_proc_stat(const char * stat_file);
+
+/* Returns the stat file path concatenating PROC_DIR with the given pid and STAT_DIR. */
+char* get_stat_file_path(char* pid, int proc_dir_length, int stat_dir_length);
+
+/* Frees all entries of the process_info_table and the table itself. */
+void clear_process_info_table(process_info ** process_info_table, int table_size);
+
+/* Updates the state counters of the tasks like sleeping, running, etc. */
+void update_state_counters(char state, task_counter* tasks);
+
+/* Returns the cpu usage of a process using a sample of time and doing current - previous. */
+float get_cpu_usage(time_info proc_time_previous, time_info proc_time_current, long long unsigned cpu_time);
+
+/* Returns the cpu_total_time = (user + nice + system + idle) using cpu times(first line of /proc/stat) */
+long long unsigned cpu_total_time();
+
+/* Updates the hash table with the process time info and the cpu info of the given process. */
+void time_table_update(process_info * proc_info, unsigned short access_point, long long unsigned cpu_time);
+
+/* Stores a new entry in the time table, where the key is the pid and data contains time_info. */
+void time_table_store(process_info * proc_info, unsigned short access_point);
+
+/* Flushes unused entries of the time table. */
+void time_table_flush(hash_entry* time_table, unsigned short access_point);
+
+/* Updates the cpu time and cpu percentage of the givn process. */
+void proc_cpu_update(process_info* proc_info, long long unsigned cpu_time);
+
+/* Calls fopen and returns zero if the file was opened succesfully and -1 on error, also printing to stderr. */
+int handle_file_open(FILE **file_stream, const char* mode, const char *file_name);
+
+/* Compare two processes sorting first by CPU percentage and then by PID. */
+static int compare_processes(const void * a, const void * b);
+
+/* Initialize the task counter struct with zeros. */
+void initialize_task_counters(task_counter *tasks);
+
 int main(int argc, char *argv[]) 
 {   
     process_info** process_info_table;
-    int num_valid_procs;
-    
-    /* the identifier for the shared memory segment */
-	int segment_id;
-	/* a pointer to the shared memory segment */
-	char* shared_memory;
+    task_counter tasks = {0,0,0,0,0};
+    unsigned short access_point = 0;
+	// int memory_segment_id;
+	// char* shared_memory;
 
-    if(argc != 2) {
-        printf("Usage: ./process_manager <segment_id>");
-        exit(-1);
-    }
+    // if(argc != 2) {
+    //     printf("Usage: ./process_manager <segment_id>");
+    //     exit(-1);
+    // }
 
-	segment_id = atoi(argv[1]);
-    //printf("\nSegment ID in process manager : %d\n", segment_id);
+	// memory_segment_id = atoi(argv[1]);
+    // //printf("\nSegment ID in process manager : %d\n", segment_id);
 
-	/** attach the shared memory segment */
-	shared_memory = (char *) shmat(segment_id, NULL, 0);
+	// /** attach the shared memory segment */
+	// shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
 	//printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
 
-    while(1)
-    {
-        num_valid_procs = 0;
-        process_info_table = proc_table_generator(&num_valid_procs);
-        clear_table(process_info_table, num_valid_procs);
+    hash_entry* time_table = hash_create(HASH_TABLE_MAX);
+    process_info_table = proc_table_generator(&tasks, access_point);
+    clear_process_info_table(process_info_table, tasks.valid_counter);
+    //while(1)
+    //{
+        initialize_task_counters(&tasks); 
+        // send NUM_TASKS TASKS_RUNNING TASKS_SLEEPING TASKS_STOPPED TASKS_ZOMBIE to interface
+        printf("NUM_TASKS:%u TASKS_RUNNING:%u TASKS_SLEEPING:%u TASKS_STOPPED:%u TASKS_ZOMBIE:%u", tasks.valid_counter,
+             tasks.running_counter, tasks.sleeping_counter, tasks.stopped_counter, tasks.zombie_counter);
         sleep(1);
-        // pegar informações summary no /proc/stat 
-        // normal_process_user %s
-        // niced_process_user %s
-        // process_kernel %s
-        // procs_running %s
-    }
+        process_info_table = proc_table_generator(&tasks, access_point);
+        qsort(process_info_table, tasks.valid_counter, sizeof(process_info*), compare_processes);
+        // send table to interface
+        clear_process_info_table(process_info_table, tasks.valid_counter);
+        time_table_flush(time_table, access_point);
+        access_point++;
+        access_point = access_point % ACCESS_POINT_MAX;   
+    //}
 
     /** now detach the shared memory segment */ 
-	if ( shmdt(shared_memory) == -1) 
-    {
-		fprintf(stderr, "Unable to detach\n");
-	}
+	// if ( shmdt(shared_memory) == -1) 
+    // {
+	// 	fprintf(stderr, "Unable to detach\n");
+	// }
 
     return 0;
 }
 
-process_info** proc_table_generator(int *num_valid_procs)
+void time_table_update(process_info * proc_info, unsigned short access_point, long long unsigned cpu_time)
+{
+    proc_cpu_update(proc_info, cpu_time);
+    time_table_store(proc_info, access_point);
+}
+
+void time_table_flush(hash_entry* time_table, unsigned short access_point)
+{
+    int key;
+    hash_data * data;
+    for(int i = 0; i < HASH_TABLE_MAX; i++)
+    {
+        key = time_table[i].key;
+        data =  (hash_data*) time_table[i].data;
+        if(key != -1 && data->access_point != access_point)
+        hash_delete(key);
+        free(data);
+    }
+}
+
+void proc_cpu_update(process_info* proc_info, long long unsigned cpu_time)
+{
+    int key = proc_info->pid;
+    hash_entry *proc_previous_entry = hash_find(key);
+    if(proc_previous_entry != NULL)
+    {
+        hash_data *proc_previous_data = (hash_data*) proc_previous_entry->data; 
+        time_info current_proc_time = proc_info->time; 
+        time_info previous_proc_time = proc_previous_data->proc_time_info;
+    
+        proc_info->cpu_time = current_proc_time.kernel_time + current_proc_time.user_time;
+        proc_info->cpu_percentage = get_cpu_usage(previous_proc_time, current_proc_time, cpu_time);
+    }
+    else 
+    {
+        proc_info->cpu_time = 0; 
+        proc_info->cpu_percentage = 0.0;
+    }
+}
+
+void time_table_store(process_info * proc_info, unsigned short access_point)
+{
+    hash_data*  proc_data;
+    hash_entry* new_entry;
+    
+    proc_data = (hash_data*) malloc(sizeof(hash_data));
+    proc_data->access_point = access_point;
+    proc_data->proc_time_info = proc_info->time;
+    
+    new_entry = (hash_entry*) malloc(sizeof(hash_entry));
+    new_entry->key = proc_info->pid;
+    new_entry->data = proc_data;
+    hash_insert_update(*new_entry); 
+}
+
+void initialize_task_counters(task_counter *tasks)
+{
+    tasks->valid_counter    = 0;
+    tasks->running_counter  = 0;
+    tasks->sleeping_counter = 0;
+    tasks->stopped_counter  = 0;
+    tasks->zombie_counter   = 0;
+}
+
+process_info** proc_table_generator(task_counter *tasks, unsigned short access_point)
 {
     DIR *directory;
     struct dirent *directory_entry;
@@ -100,6 +224,8 @@ process_info** proc_table_generator(int *num_valid_procs)
     char* stat_file_path;
     process_info **process_info_table = (process_info **) malloc(sizeof(process_info*));
     process_info *proc_info;
+    static long long unsigned cpu_time = 0;
+    cpu_time = cpu_total_time() - cpu_time;
     //printf("PID\tUSER\tPR\tNI\tS\t%%CPU\tTIME+\tCOMMAND\t\t ENTRY\n");
     
     if ((directory = opendir (PROC_DIR)) != NULL) 
@@ -113,41 +239,56 @@ process_info** proc_table_generator(int *num_valid_procs)
                 proc_info = read_proc_stat(stat_file_path);
                 if (proc_info != NULL) 
                 { 
-                    process_info_table = (process_info **) realloc(process_info_table, ++(*num_valid_procs) * sizeof(process_info*));
-                    process_info_table[*num_valid_procs - 1] = proc_info;
-                    // printf("%d\tUSER\t%d\t%d\t%c\t%.2f\t%lu\t%s\t\t%d\n", proc_info->pid, proc_info->priority, proc_info->nice,
-                    //     proc_info->state, 0.0, proc_info->time.user_time, proc_info->command, num_valid_procs -1 );
+                    process_info_table = (process_info **) realloc(process_info_table, ++(tasks->valid_counter) * sizeof(process_info*));
+                    process_info_table[tasks->valid_counter - 1] = proc_info;
+                    // Stores the previous time info of the process to calculate the cpu usage per proc
+                    time_table_update(proc_info, access_point, cpu_time);
+                    update_state_counters(proc_info->state, tasks);
+                     printf("%d\tUSER\t%d\t%d\t%c\t%.2f\t%lu\t%s\t\t%d\n", proc_info->pid, proc_info->priority, proc_info->nice,
+                         proc_info->state, 0.0, proc_info->time.user_time, proc_info->command, tasks->valid_counter -1 );
                 }
                 free(stat_file_path); 
             }
         }
-        process_info_table = (process_info **) realloc(process_info_table, ++(*num_valid_procs) * sizeof(process_info*));
+        process_info_table = (process_info **) realloc(process_info_table, ++(tasks->valid_counter) * sizeof(process_info*));
         // marks the end of the list
-        process_info_table[*num_valid_procs - 1] = NULL;
+        process_info_table[tasks->valid_counter - 1] = NULL;
 
         closedir(directory);
         return process_info_table;
     } 
     else 
     {
-        /* could not open directory */
-        perror ("Error in process_manager opendir(\"./proc\")");
+        snprintf(error_buffer, BUFFER_SIZE, "Error in process_manager => opendir(\"./proc\")");
+		perror(error_buffer); 
         free(process_info_table);
-        return -1;     
+        return NULL;     
     }
 }
 
-char * get_stat_file_path(char * entry_name, int proc_dir_length, int stat_dir_length)
+void update_state_counters(char state, task_counter* tasks)
 {
-    int directory_entry_length = strlen(entry_name);
+    if(state == 'R')
+        tasks->running_counter++;
+    else if(state == 'S')
+        tasks->sleeping_counter++;
+    else if(state == 'T' || state == 't')
+        tasks->stopped_counter++;
+    else if(state == 'Z')
+        tasks->zombie_counter++;
+}
+
+char* get_stat_file_path(char* pid, int proc_dir_length, int stat_dir_length)
+{
+    int directory_entry_length = strlen(pid);
     int proc_path_length = proc_dir_length + stat_dir_length + directory_entry_length + 2; // 2 for "/" and '\0'
     char *stat_file_path = (char *) calloc(proc_path_length, sizeof(char));
-    sprintf(stat_file_path, "%s/%s%s", PROC_DIR, entry_name, STAT_DIR);
+    sprintf(stat_file_path, "%s/%s%s", PROC_DIR, pid, STAT_DIR);
 
     return stat_file_path;
 }
 
-process_info * read_proc_stat(const char * stat_file)
+process_info* read_proc_stat(const char * stat_file)
 {
     FILE * stat_filestream;
     int handle_file_return = handle_file_open(&stat_filestream, "r", stat_file);
@@ -173,27 +314,14 @@ process_info * read_proc_stat(const char * stat_file)
     {
         for(int i = 0; i < TRASH_SIZE; i++)  fscanf(stat_filestream ,"%lu", &lixo);
         fscanf(stat_filestream ,"%lu%lu", &(process->time.user_time), &(process->time.kernel_time));
-        fscanf(stat_filestream, "%*ld%*ld");
+        fscanf(stat_filestream, "%*d%*d");
         fscanf(stat_filestream, "%d%d"  , &(process->priority), &(process->nice));
-        fscanf(stat_filestream, "%*ld%*ld");
-        fscanf(stat_filestream, "%llu",   &(process->time.start_time)); 
+        fscanf(stat_filestream, "%*d%*d");
     }
     fclose(stat_filestream);
     return process;
 } 
 
-/*
- * Function:  handle_file_open 
- * --------------------
- * Tries to open the given file and handle errors
- * 
- *  file_stream: pointer to assign the file_stream if the file has been opened
- *	file_name: path for the file to be open	
- *	mode: file open mode (e.g. - r, w, rb...)
- * 
- *  returns: zero if the file was opened succesfully
- *           returns -1 on error
- */
 int handle_file_open(FILE **file_stream, const char* mode, const char *file_name) 
 {	
 	if(file_stream != NULL) 
@@ -210,55 +338,62 @@ int handle_file_open(FILE **file_stream, const char* mode, const char *file_name
 	return 0;
 }
 
-void clear_table(process_info ** process, int table_size)
+void clear_process_info_table(process_info ** process_info_table, int table_size)
 {
     for(int i = table_size - 1; i >= 0; i--)
     {   
-        free(process[i]);
+        free(process_info_table[i]);
     }
-    free(process);
+    free(process_info_table);
 }
 
 long long unsigned cpu_total_time()
 {
     FILE* proc_stat_filestream;
     long long unsigned user, nice, system, idle, total_time;
-    
-    int file_open_return = handle_file_open(proc_stat_filestream, "r", PROC_STAT_PATH);
+    char line[128];
+
+    int file_open_return = handle_file_open(&proc_stat_filestream, "r", PROC_STAT_PATH);
     
     if(file_open_return == -1)
+    {   
+        snprintf(error_buffer, BUFFER_SIZE, "Could not calculate CPU total time => cpu_total_time()");
+		perror(error_buffer);
         return -1;
+    }
+    
     fscanf(proc_stat_filestream, "%s", line);
     sscanf(line,"%*s %llu %llu %llu %llu", &user, &nice, &system, &idle);
     total_time = user + nice + system + idle;    
     return total_time;
 }
 
-float update_cpu_usage(process_info** process_table, int num_procs)
+float get_cpu_usage(time_info proc_time_previous, time_info proc_time_current, long long unsigned cpu_time)
 {   
-    char line[256];
-    static time_info time_before = {0,0,0,0,0}; 
-    static time_info time_after  = {0,0,0,0,0};
-    static long long unsigned time_total_before = 0; 
-    static long long unsigned time_total_after  = 0;
-    
-    time_before = time_after;
-    time_after = current_proc_time;
-    
-    time_total_before = time_total_after;
-    time_total_after = cpu_total_time();
+    long long unsigned total_time_current = proc_time_current.user_time + proc_time_current.kernel_time;
+    long long unsigned total_time_previous = proc_time_previous.user_time + proc_time_previous.kernel_time; 
+    float cpu_usage = 0;
+    if(cpu_time != 0)
+        cpu_usage = 100 * (total_time_current - total_time_previous)  / cpu_time;
 
-    for(int i = num_procs; i >= 0; i--)    
-        calculate_cpu_usage(time_before, time_after, time_total_before, time_total_after);
+    return cpu_usage;
 }
 
-float calculate_cpu_usage(time_info time_before, time_info time_after,
-    long long unsigned time_total_before, long long unsigned time_total_after)
-{   
-    long long unsigned delta_total_time = time_total_after - time_total_before;
-    long long unsigned total_time_after = time_after.user_time + time_after.kernel_time;
-    long long unsigned total_time_before = time_before.user_time + time_before.kernel_time;
-    float total_time = 100 * (total_time_after - total_time_before)  / delta_total_time;
-
-    return total_time;
+static int compare_processes(const void * a, const void * b) 
+{
+    process_info* proc_a = (process_info *) a;
+    process_info* proc_b = (process_info *) b;
+    int x = proc_a->cpu_percentage * 100;
+    int y = proc_a->cpu_percentage * 100;
+    int diff = (y - x);
+    
+    // sort by pid
+    if(diff == 0) 
+    {
+        int pid_a = proc_a->pid;
+        int pid_b = proc_b->pid;
+        return pid_a - pid_b;
+    }
+    else
+        return diff;
 }
