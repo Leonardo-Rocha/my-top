@@ -103,6 +103,9 @@ static int compare_processes(const void * a, const void * b);
 /* Initialize the task counter struct with zeros. */
 void initialize_task_counters(task_counter *tasks);
 
+/* Writes all table info into the shared memory*/
+void write_info_in_memory(task_counter tasks, process_info** process_info_table, char* shared_memory);
+
 int main(int argc, char *argv[]) 
 {   
     process_info** process_info_table;
@@ -126,21 +129,21 @@ int main(int argc, char *argv[])
     hash_entry* time_table = hash_create(HASH_TABLE_MAX);
     process_info_table = proc_table_generator(&tasks, access_point);
     clear_process_info_table(process_info_table, tasks.valid_counter);
-    //while(1)
-    //{
-        initialize_task_counters(&tasks); 
+    while(1)
+    {
         // send NUM_TASKS TASKS_RUNNING TASKS_SLEEPING TASKS_STOPPED TASKS_ZOMBIE to interface
         printf("NUM_TASKS:%u TASKS_RUNNING:%u TASKS_SLEEPING:%u TASKS_STOPPED:%u TASKS_ZOMBIE:%u", tasks.valid_counter,
              tasks.running_counter, tasks.sleeping_counter, tasks.stopped_counter, tasks.zombie_counter);
+        initialize_task_counters(&tasks); 
         sleep(1);
         process_info_table = proc_table_generator(&tasks, access_point);
         qsort(process_info_table, tasks.valid_counter, sizeof(process_info*), compare_processes);
-        // send table to interface
+        //write_info_in_memory(tasks, shared_memory);
         clear_process_info_table(process_info_table, tasks.valid_counter);
         time_table_flush(time_table, access_point);
         access_point++;
         access_point = access_point % ACCESS_POINT_MAX;   
-    //}
+    }
 
     /** now detach the shared memory segment */ 
 	// if ( shmdt(shared_memory) == -1) 
@@ -176,12 +179,12 @@ void proc_cpu_update(process_info* proc_info, long long unsigned cpu_time)
     int key = proc_info->pid;
     hash_entry *proc_previous_entry = hash_find(key);
     if(proc_previous_entry != NULL)
-    {
+    {   
         hash_data *proc_previous_data = (hash_data*) proc_previous_entry->data; 
         time_info current_proc_time = proc_info->time; 
         time_info previous_proc_time = proc_previous_data->proc_time_info;
     
-        proc_info->cpu_time = current_proc_time.kernel_time + current_proc_time.user_time;
+        proc_info->cpu_time = current_proc_time.kernel_time + current_proc_time.user_time / sysconf(_SC_CLK_TCK);
         proc_info->cpu_percentage = get_cpu_usage(previous_proc_time, current_proc_time, cpu_time);
     }
     else 
@@ -224,9 +227,12 @@ process_info** proc_table_generator(task_counter *tasks, unsigned short access_p
     char* stat_file_path;
     process_info **process_info_table = (process_info **) malloc(sizeof(process_info*));
     process_info *proc_info;
-    static long long unsigned cpu_time = 0;
-    cpu_time = cpu_total_time() - cpu_time;
-    //printf("PID\tUSER\tPR\tNI\tS\t%%CPU\tTIME+\tCOMMAND\t\t ENTRY\n");
+    static long long unsigned cpu_previous_time = 0;
+    long long unsigned cpu_time = 0;
+    long long unsigned cpu_total = cpu_total_time();
+    cpu_time = cpu_total - cpu_previous_time;
+    cpu_previous_time = cpu_total;
+            printf("\nPID\tUSER\tPR\tNI\tS\t%%CPU\tTIME+\tCOMMAND\n");
     
     if ((directory = opendir (PROC_DIR)) != NULL) 
     {
@@ -244,8 +250,8 @@ process_info** proc_table_generator(task_counter *tasks, unsigned short access_p
                     // Stores the previous time info of the process to calculate the cpu usage per proc
                     time_table_update(proc_info, access_point, cpu_time);
                     update_state_counters(proc_info->state, tasks);
-                     printf("%d\tUSER\t%d\t%d\t%c\t%.2f\t%lu\t%s\t\t%d\n", proc_info->pid, proc_info->priority, proc_info->nice,
-                         proc_info->state, 0.0, proc_info->time.user_time, proc_info->command, tasks->valid_counter -1 );
+                    printf("%d\tUSER\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->priority, proc_info->nice,    
+                        proc_info->state, proc_info->cpu_percentage, (float)proc_info->time.user_time/100.0, proc_info->command);
                 }
                 free(stat_file_path); 
             }
@@ -333,8 +339,7 @@ int handle_file_open(FILE **file_stream, const char* mode, const char *file_name
 			perror(error_buffer);
 			return -1;
 		}
-	}
-			
+	}	
 	return 0;
 }
 
@@ -351,7 +356,6 @@ long long unsigned cpu_total_time()
 {
     FILE* proc_stat_filestream;
     long long unsigned user, nice, system, idle, total_time;
-    char line[128];
 
     int file_open_return = handle_file_open(&proc_stat_filestream, "r", PROC_STAT_PATH);
     
@@ -361,10 +365,9 @@ long long unsigned cpu_total_time()
 		perror(error_buffer);
         return -1;
     }
-    
-    fscanf(proc_stat_filestream, "%s", line);
-    sscanf(line,"%*s %llu %llu %llu %llu", &user, &nice, &system, &idle);
-    total_time = user + nice + system + idle;    
+
+    fscanf(proc_stat_filestream,"%*s %llu %llu %llu %llu", &user, &nice, &system, &idle);
+    total_time = user  + system + system + idle;    
     return total_time;
 }
 
@@ -372,9 +375,9 @@ float get_cpu_usage(time_info proc_time_previous, time_info proc_time_current, l
 {   
     long long unsigned total_time_current = proc_time_current.user_time + proc_time_current.kernel_time;
     long long unsigned total_time_previous = proc_time_previous.user_time + proc_time_previous.kernel_time; 
-    float cpu_usage = 0;
+    double cpu_usage = 100;
     if(cpu_time != 0)
-        cpu_usage = 100 * (total_time_current - total_time_previous)  / cpu_time;
+        cpu_usage = 100.0 * (float) ((double) (total_time_current - total_time_previous)  /(double) cpu_time);
 
     return cpu_usage;
 }
@@ -396,4 +399,21 @@ static int compare_processes(const void * a, const void * b)
     }
     else
         return diff;
+}
+
+void write_info_in_memory(task_counter tasks, process_info** process_info_table, char* shared_memory)
+{ 
+    // write tasks
+    sprintf(shared_memory, "%u%u%u%u%u", tasks.running_counter, tasks.sleeping_counter, 
+        tasks.stopped_counter, tasks.valid_counter, tasks.zombie_counter);
+    // loop through process_info_table
+    for(int i = 0; i < tasks.valid_counter; i++) 
+    {
+        // write every row
+        process_info* proc_info = process_info_table[i];
+        // TODO: change USER to real info
+        sprintf(shared_memory, "%d\tUSER\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->priority, 
+            proc_info->nice, proc_info->state, proc_info->cpu_percentage, (float)proc_info->time.user_time/100.0, 
+            proc_info->command);
+    }
 }
