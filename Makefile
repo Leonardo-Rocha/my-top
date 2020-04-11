@@ -23,8 +23,8 @@ my_top: $(RC)/my_top.c
 text_interface: $(RC)/text_interface.c 
 	$(CC) $(CCOPTS) -o $(BU)/$@ $< $(NCURSES)
 
-process_manager: $(RC)/process_manager.c 
-	$(CC) $(CCOPTS) -o $(BU)/$@ $<
+process_manager: $(RC)/process_manager.c $(RC)/hashtable.c
+	$(CC) $(CCOPTS) -o $(BU)/$@ $^
 
 # Run my_top
 run_top: $(BU)/my_top

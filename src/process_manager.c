@@ -43,13 +43,6 @@ typedef struct
     unsigned int zombie_counter;
 } task_counter;
 
-
-typedef struct 
-{
-    pid_t pid;
-    time_info previous_time;    
-} procs_time_samples;
-
 typedef struct process_info
 {
     pid_t pid;
@@ -119,9 +112,6 @@ void initialize_task_counters(task_counter *tasks);
 /* Writes all table info into the shared memory*/
 void write_info_in_memory(task_counter tasks, process_info** process_info_table, char* shared_memory);
 
-/* Frees all entries of the password_struct and the struct itself. */
-void clear_password_struct(struct passwd * password_struct);
-
 /* Print all process with a pretty header. */
 void print_process_info_table(process_info ** proc_info_table, int size);
 
@@ -152,13 +142,12 @@ int main(int argc, char *argv[])
     access_point = access_point % ACCESS_POINT_MAX;
     while(1)
     {
-        write_info_in_memory(tasks, shared_memory);
         initialize_task_counters(&tasks); 
         sleep(1);
         process_info_table = proc_table_generator(&tasks, access_point);
         qsort(process_info_table, tasks.valid_counter - 1, sizeof(process_info*), compare_processes);
-        print_process_info_table(process_info_table, tasks.valid_counter - 1);
-        //write_info_in_memory(tasks, shared_memory);
+        //print_process_info_table(process_info_table, tasks.valid_counter - 1);
+        write_info_in_memory(tasks, process_info_table, shared_memory);
         clear_process_info_table(process_info_table, tasks.valid_counter);
         time_table_flush(time_table, access_point);
         access_point++;
@@ -392,29 +381,7 @@ void read_proc_username(process_info* proc_info, char *stat_file)
             strcpy(proc_info->user_name, password_struct.pw_name);
     }   
 
-    //clear_password_struct(&password_struct);
     free(password_buffer);
-}
-
-void clear_password_struct(struct passwd * password_struct)
-{   
-    if(password_struct != NULL)
-    {   
-        if(password_struct->pw_dir != NULL)
-            free(password_struct->pw_dir);
-            
-        if(password_struct->pw_gecos != NULL)
-            free(password_struct->pw_gecos);
-
-        if(password_struct->pw_name != NULL)
-            free(password_struct->pw_name);
-            
-        if(password_struct->pw_passwd != NULL)
-            free(password_struct->pw_passwd);
-            
-        if(password_struct->pw_shell != NULL)
-            free(password_struct->pw_shell);
-    }
 }
 
 uid_t read_proc_uid(char * stat_file)
@@ -544,9 +511,8 @@ void write_info_in_memory(task_counter tasks, process_info** process_info_table,
     {
         // write every row
         process_info* proc_info = process_info_table[i];
-        // TODO: change USER to real info
-        sprintf(shared_memory, "%d\tUSER\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->priority, 
-            proc_info->nice, proc_info->state, proc_info->cpu_percentage, (float)proc_info->time.user_time/100.0, 
+        sprintf(shared_memory, "%d\t%s\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->user_name,proc_info->priority, 
+            proc_info->nice, proc_info->state, proc_info->cpu_percentage, proc_info->cpu_time/sysconf(_SC_CLK_TCK), 
             proc_info->command);
     }
 }
