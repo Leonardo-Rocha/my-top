@@ -8,14 +8,17 @@
 #include <sys/stat.h>
 #include "hashtable.h"
 #include <unistd.h>
+#include <pwd.h>
 
-#define PROC_DIR "/proc"
-#define STAT_DIR "/stat"
-#define PROC_STAT_PATH "/proc/stat"
-#define TRASH_SIZE 10
-#define BUFFER_SIZE 200
+#define PROC_DIR         "/proc"
+#define STAT_DIR         "/stat"
+#define PROC_STAT_PATH   "/proc/stat"
+#define TRASH_SIZE       10
+#define BUFFER_SIZE      200
 #define ACCESS_POINT_MAX 100
 #define HASH_TABLE_MAX   600
+#define COMMAND_MAX      64
+#define USER_NAME_MAX    10
 
 typedef struct
 {
@@ -49,14 +52,14 @@ typedef struct
 typedef struct process_info
 {
     pid_t pid;
-    char user_name[32];
+    char *user_name; // this is allocated with size USER_NAME_MAX
     char state;
     int priority;
     int nice;
-    float cpu_percentage;
+    float cpu_percentage; 
     time_info time;
     unsigned cpu_time;
-    char command[64];
+    char *command; // this is allocated with size COMMAND_MAX
 } process_info;
 
 char error_buffer[BUFFER_SIZE];
@@ -67,6 +70,12 @@ process_info** proc_table_generator(task_counter *tasks, unsigned short access_p
 /* Read the stat of a single process and return it if was successful. Returns null otherwise. */
 process_info* read_proc_stat(const char * stat_file);
 
+/* Reads the username of a proc by searching for the uid in /status and writes it in proc_info. */
+void read_proc_username(process_info* proc_info, char *stat_file);
+
+/* Returns the uid by parsing the /proc/[pid]/status file. */
+uid_t read_proc_uid(char * stat_file);
+
 /* Returns the stat file path concatenating PROC_DIR with the given pid and STAT_DIR. */
 char* get_stat_file_path(char* pid, int proc_dir_length, int stat_dir_length);
 
@@ -75,6 +84,9 @@ void clear_process_info_table(process_info ** process_info_table, int table_size
 
 /* Updates the state counters of the tasks like sleeping, running, etc. */
 void update_state_counters(char state, task_counter* tasks);
+
+/* Updates the cpu time and cpu percentage of the given process. */
+void proc_cpu_update(process_info* proc_info, long long unsigned cpu_time);
 
 /* Returns the cpu usage of a process using a sample of time and doing current - previous. */
 float get_cpu_usage(time_info proc_time_previous, time_info proc_time_current, long long unsigned cpu_time);
@@ -91,8 +103,8 @@ void time_table_store(process_info * proc_info, unsigned short access_point);
 /* Flushes unused entries of the time table. */
 void time_table_flush(hash_entry* time_table, unsigned short access_point);
 
-/* Updates the cpu time and cpu percentage of the givn process. */
-void proc_cpu_update(process_info* proc_info, long long unsigned cpu_time);
+/* Frees all entries of the time_table and the table itself. */
+void clear_time_table(hash_entry* time_table);
 
 /* Calls fopen and returns zero if the file was opened succesfully and -1 on error, also printing to stderr. */
 int handle_file_open(FILE **file_stream, const char* mode, const char *file_name);
@@ -105,6 +117,9 @@ void initialize_task_counters(task_counter *tasks);
 
 /* Writes all table info into the shared memory*/
 void write_info_in_memory(task_counter tasks, process_info** process_info_table, char* shared_memory);
+
+/* Frees all entries of the password_struct and the struct itself. */
+void clear_password_struct(struct passwd * password_struct);
 
 int main(int argc, char *argv[]) 
 {   
@@ -129,27 +144,29 @@ int main(int argc, char *argv[])
     hash_entry* time_table = hash_create(HASH_TABLE_MAX);
     process_info_table = proc_table_generator(&tasks, access_point);
     clear_process_info_table(process_info_table, tasks.valid_counter);
-    while(1)
-    {
+    // while(1)
+    // {
         // send NUM_TASKS TASKS_RUNNING TASKS_SLEEPING TASKS_STOPPED TASKS_ZOMBIE to interface
-        printf("NUM_TASKS:%u TASKS_RUNNING:%u TASKS_SLEEPING:%u TASKS_STOPPED:%u TASKS_ZOMBIE:%u", tasks.valid_counter,
-             tasks.running_counter, tasks.sleeping_counter, tasks.stopped_counter, tasks.zombie_counter);
+        //printf("NUM_TASKS:%u TASKS_RUNNING:%u TASKS_SLEEPING:%u TASKS_STOPPED:%u TASKS_ZOMBIE:%u", tasks.valid_counter,
+        //     tasks.running_counter, tasks.sleeping_counter, tasks.stopped_counter, tasks.zombie_counter);
         initialize_task_counters(&tasks); 
         sleep(1);
         process_info_table = proc_table_generator(&tasks, access_point);
-        qsort(process_info_table, tasks.valid_counter, sizeof(process_info*), compare_processes);
+        //qsort(process_info_table, tasks.valid_counter, sizeof(process_info*), compare_processes);
         //write_info_in_memory(tasks, shared_memory);
         clear_process_info_table(process_info_table, tasks.valid_counter);
         time_table_flush(time_table, access_point);
         access_point++;
         access_point = access_point % ACCESS_POINT_MAX;   
-    }
+   // }
 
     /** now detach the shared memory segment */ 
 	// if ( shmdt(shared_memory) == -1) 
     // {
 	// 	fprintf(stderr, "Unable to detach\n");
 	// }
+
+    clear_time_table(time_table);
 
     return 0;
 }
@@ -232,7 +249,7 @@ process_info** proc_table_generator(task_counter *tasks, unsigned short access_p
     long long unsigned cpu_total = cpu_total_time();
     cpu_time = cpu_total - cpu_previous_time;
     cpu_previous_time = cpu_total;
-            printf("\nPID\tUSER\tPR\tNI\tS\t%%CPU\tTIME+\tCOMMAND\n");
+    //printf("\nPID\tUSER\tPR\tNI\tS\t%%CPU\tTIME+\tCOMMAND\n");
     
     if ((directory = opendir (PROC_DIR)) != NULL) 
     {
@@ -244,14 +261,15 @@ process_info** proc_table_generator(task_counter *tasks, unsigned short access_p
                 stat_file_path = get_stat_file_path(directory_entry->d_name, proc_dir_length, stat_dir_length);
                 proc_info = read_proc_stat(stat_file_path);
                 if (proc_info != NULL) 
-                { 
+                {   
+                    read_proc_username(proc_info, stat_file_path);
                     process_info_table = (process_info **) realloc(process_info_table, ++(tasks->valid_counter) * sizeof(process_info*));
                     process_info_table[tasks->valid_counter - 1] = proc_info;
                     // Stores the previous time info of the process to calculate the cpu usage per proc
                     time_table_update(proc_info, access_point, cpu_time);
                     update_state_counters(proc_info->state, tasks);
-                    printf("%d\tUSER\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->priority, proc_info->nice,    
-                        proc_info->state, proc_info->cpu_percentage, (float)proc_info->time.user_time/100.0, proc_info->command);
+                    //printf("%d\t%s\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->user_name, proc_info->priority, proc_info->nice,    
+                    //    proc_info->state, proc_info->cpu_percentage, (float)proc_info->time.user_time/100.0, proc_info->command);
                 }
                 free(stat_file_path); 
             }
@@ -287,7 +305,7 @@ void update_state_counters(char state, task_counter* tasks)
 char* get_stat_file_path(char* pid, int proc_dir_length, int stat_dir_length)
 {
     int directory_entry_length = strlen(pid);
-    int proc_path_length = proc_dir_length + stat_dir_length + directory_entry_length + 2; // 2 for "/" and '\0'
+    int proc_path_length = proc_dir_length + stat_dir_length + directory_entry_length + 4; // for "/" and '\0' and "us" of status
     char *stat_file_path = (char *) calloc(proc_path_length, sizeof(char));
     sprintf(stat_file_path, "%s/%s%s", PROC_DIR, pid, STAT_DIR);
 
@@ -300,15 +318,11 @@ process_info* read_proc_stat(const char * stat_file)
     int handle_file_return = handle_file_open(&stat_filestream, "r", stat_file);
 
     if(handle_file_return != 0) 
-    {
-        fclose(stat_filestream);
         return NULL;
-    }
         
     process_info* process = (process_info *) malloc(sizeof(process_info));
-    long unsigned int lixo;
-    char whitespace_buf;
-    fscanf(stat_filestream, "%d%s%c%c", &(process->pid), process->command, &whitespace_buf,&process->state);
+    process->command = (char*) malloc(COMMAND_MAX);  
+    fscanf(stat_filestream, "%d%s%*c%c", &(process->pid), process->command, &process->state);
     //This Process is dead, move on
     if(process->state == 'X')
     {
@@ -318,7 +332,7 @@ process_info* read_proc_stat(const char * stat_file)
     }   
     else
     {
-        for(int i = 0; i < TRASH_SIZE; i++)  fscanf(stat_filestream ,"%lu", &lixo);
+        for(int i = 0; i < TRASH_SIZE; i++)  fscanf(stat_filestream ,"%*u");
         fscanf(stat_filestream ,"%lu%lu", &(process->time.user_time), &(process->time.kernel_time));
         fscanf(stat_filestream, "%*d%*d");
         fscanf(stat_filestream, "%d%d"  , &(process->priority), &(process->nice));
@@ -326,7 +340,74 @@ process_info* read_proc_stat(const char * stat_file)
     }
     fclose(stat_filestream);
     return process;
-} 
+}
+
+void read_proc_username(process_info* proc_info, char *stat_file) 
+{   
+    uid_t user_id = read_proc_uid(stat_file);
+    struct passwd * password_struct = getpwuid(user_id);
+    proc_info->user_name = (char*) malloc(USER_NAME_MAX);
+    if(password_struct != NULL)
+    {
+        if(strlen(password_struct->pw_name) > 9) 
+        {
+            memcpy(proc_info->user_name, password_struct->pw_name, 9);
+            proc_info->user_name[8] = '+';
+            proc_info->user_name[9] = '\0';
+        }
+        else 
+            strcpy(proc_info->user_name, password_struct->pw_name);
+    }
+    else 
+        strcpy(proc_info->user_name, "UNKNOWN");
+
+    //clear_password_struct(password_struct);
+}
+
+void clear_password_struct(struct passwd * password_struct)
+{   
+    if(password_struct != NULL)
+    {
+        // if(password_struct->pw_dir != NULL)
+        //     free(password_struct->pw_dir);
+            
+        // if(password_struct->pw_gecos != NULL)
+        //     free(password_struct->pw_gecos);
+
+        // if(password_struct->pw_passwd != NULL)
+        //     free(password_struct->pw_passwd);
+            
+        // if(password_struct->pw_shell != NULL)
+        //     free(password_struct->pw_shell);
+            
+        free(password_struct);
+    }
+}
+
+uid_t read_proc_uid(char * stat_file)
+{   
+    // complete the stat to "us"
+    uid_t user_id = 0;
+    strcat(stat_file, "us");
+    FILE* filestream; 
+    char line_buffer[32];   
+    int file_open_return = handle_file_open(&filestream, "r", stat_file);
+
+    if(file_open_return == -1) 
+    {
+        return 0;
+    }
+    
+    fscanf(filestream, "%s", line_buffer);
+    // consume the file while we didn't find the Uid
+    while(strcmp(line_buffer, "Uid:") != 0)
+    {
+        fscanf(filestream, "%s", line_buffer);
+    }
+    fscanf(filestream, "%*s%*u%u", &user_id);
+    fclose(filestream);
+    return user_id;
+}
 
 int handle_file_open(FILE **file_stream, const char* mode, const char *file_name) 
 {	
@@ -343,11 +424,26 @@ int handle_file_open(FILE **file_stream, const char* mode, const char *file_name
 	return 0;
 }
 
+void clear_time_table(hash_entry* time_table)
+{
+    for (int i = HASH_TABLE_MAX -1; i >= 0; i--)
+    {   
+        if(time_table[i].data != NULL)
+            free((hash_data*)time_table[i].data);
+    }
+    free(time_table);
+}
+
 void clear_process_info_table(process_info ** process_info_table, int table_size)
 {
     for(int i = table_size - 1; i >= 0; i--)
     {   
-        free(process_info_table[i]);
+        if(process_info_table[i] != NULL)
+        {
+            free(&process_info_table[i]->user_name);
+            free(&process_info_table[i]->command);
+            free(process_info_table[i]);
+        }
     }
     free(process_info_table);
 }
@@ -367,7 +463,10 @@ long long unsigned cpu_total_time()
     }
 
     fscanf(proc_stat_filestream,"%*s %llu %llu %llu %llu", &user, &nice, &system, &idle);
-    total_time = user  + system + system + idle;    
+    total_time = user  + system + system + idle; 
+
+    fclose(proc_stat_filestream);
+
     return total_time;
 }
 
