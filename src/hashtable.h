@@ -14,10 +14,10 @@ int get_hash_code(int key);
 // creates a hash table of given size
 hash_entry* hash_create(int size);
 
-// inserts a new element or update a existing key and data
-hash_entry* hash_insert_update(hash_entry new_entry);
+// inserts a new element 
+hash_entry* hash_insert(hash_entry new_entry);
 
-//find an entry by it's key and returns a pointer to it on success; NULL if not found.
+// find an entry by it's key and returns a pointer to it on success; NULL if not found.
 hash_entry* hash_find(int key);
 
 //TODO: implement this

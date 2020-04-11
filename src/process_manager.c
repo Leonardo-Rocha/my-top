@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include "hashtable.h"
 #include <unistd.h>
 #include <pwd.h>
@@ -13,7 +14,7 @@
 #define PROC_DIR         "/proc"
 #define STAT_DIR         "/stat"
 #define PROC_STAT_PATH   "/proc/stat"
-#define TRASH_SIZE       10
+#define TRASH_SIZE       10 
 #define BUFFER_SIZE      200
 #define ACCESS_POINT_MAX 100
 #define HASH_TABLE_MAX   600
@@ -121,50 +122,54 @@ void write_info_in_memory(task_counter tasks, process_info** process_info_table,
 /* Frees all entries of the password_struct and the struct itself. */
 void clear_password_struct(struct passwd * password_struct);
 
+/* Print all process with a pretty header. */
+void print_process_info_table(process_info ** proc_info_table, int size);
+
 int main(int argc, char *argv[]) 
 {   
     process_info** process_info_table;
     task_counter tasks = {0,0,0,0,0};
     unsigned short access_point = 0;
-	// int memory_segment_id;
-	// char* shared_memory;
+	int memory_segment_id;
+	char* shared_memory;
 
-    // if(argc != 2) {
-    //     printf("Usage: ./process_manager <segment_id>");
-    //     exit(-1);
-    // }
+    if(argc != 2) {
+        printf("Usage: ./process_manager <segment_id>");
+        exit(-1);
+    }
 
-	// memory_segment_id = atoi(argv[1]);
-    // //printf("\nSegment ID in process manager : %d\n", segment_id);
+	memory_segment_id = atoi(argv[1]);
+    //printf("\nSegment ID in process manager : %d\n", segment_id);
 
-	// /** attach the shared memory segment */
-	// shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
+	/** attach the shared memory segment */
+	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
 	//printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
 
     hash_entry* time_table = hash_create(HASH_TABLE_MAX);
     process_info_table = proc_table_generator(&tasks, access_point);
     clear_process_info_table(process_info_table, tasks.valid_counter);
-    // while(1)
-    // {
-        // send NUM_TASKS TASKS_RUNNING TASKS_SLEEPING TASKS_STOPPED TASKS_ZOMBIE to interface
-        //printf("NUM_TASKS:%u TASKS_RUNNING:%u TASKS_SLEEPING:%u TASKS_STOPPED:%u TASKS_ZOMBIE:%u", tasks.valid_counter,
-        //     tasks.running_counter, tasks.sleeping_counter, tasks.stopped_counter, tasks.zombie_counter);
+    access_point++;
+    access_point = access_point % ACCESS_POINT_MAX;
+    while(1)
+    {
+        write_info_in_memory(tasks, shared_memory);
         initialize_task_counters(&tasks); 
         sleep(1);
         process_info_table = proc_table_generator(&tasks, access_point);
-        //qsort(process_info_table, tasks.valid_counter, sizeof(process_info*), compare_processes);
+        qsort(process_info_table, tasks.valid_counter - 1, sizeof(process_info*), compare_processes);
+        print_process_info_table(process_info_table, tasks.valid_counter - 1);
         //write_info_in_memory(tasks, shared_memory);
         clear_process_info_table(process_info_table, tasks.valid_counter);
         time_table_flush(time_table, access_point);
         access_point++;
         access_point = access_point % ACCESS_POINT_MAX;   
-   // }
+    }
 
     /** now detach the shared memory segment */ 
-	// if ( shmdt(shared_memory) == -1) 
-    // {
-	// 	fprintf(stderr, "Unable to detach\n");
-	// }
+	if ( shmdt(shared_memory) == -1) 
+    {
+		fprintf(stderr, "Unable to detach\n");
+	}
 
     clear_time_table(time_table);
 
@@ -180,14 +185,16 @@ void time_table_update(process_info * proc_info, unsigned short access_point, lo
 void time_table_flush(hash_entry* time_table, unsigned short access_point)
 {
     int key;
-    hash_data * data;
+    hash_data* data;
     for(int i = 0; i < HASH_TABLE_MAX; i++)
     {
         key = time_table[i].key;
         data =  (hash_data*) time_table[i].data;
         if(key != -1 && data->access_point != access_point)
-        hash_delete(key);
-        free(data);
+        {
+            hash_delete(key);
+            free(data);
+        }
     }
 }
 
@@ -201,7 +208,7 @@ void proc_cpu_update(process_info* proc_info, long long unsigned cpu_time)
         time_info current_proc_time = proc_info->time; 
         time_info previous_proc_time = proc_previous_data->proc_time_info;
     
-        proc_info->cpu_time = current_proc_time.kernel_time + current_proc_time.user_time / sysconf(_SC_CLK_TCK);
+        proc_info->cpu_time = current_proc_time.kernel_time + current_proc_time.user_time;
         proc_info->cpu_percentage = get_cpu_usage(previous_proc_time, current_proc_time, cpu_time);
     }
     else 
@@ -214,16 +221,26 @@ void proc_cpu_update(process_info* proc_info, long long unsigned cpu_time)
 void time_table_store(process_info * proc_info, unsigned short access_point)
 {
     hash_data*  proc_data;
-    hash_entry* new_entry;
+    hash_entry* entry;
+    hash_entry new_entry;
     
-    proc_data = (hash_data*) malloc(sizeof(hash_data));
-    proc_data->access_point = access_point;
-    proc_data->proc_time_info = proc_info->time;
-    
-    new_entry = (hash_entry*) malloc(sizeof(hash_entry));
-    new_entry->key = proc_info->pid;
-    new_entry->data = proc_data;
-    hash_insert_update(*new_entry); 
+    entry = hash_find(proc_info->pid);
+    if(entry != NULL)
+    {
+        proc_data = (hash_data*) entry->data;
+        proc_data->access_point = access_point;
+        proc_data->proc_time_info = proc_info->time;
+    }
+    else 
+    {
+        proc_data = (hash_data*) malloc(sizeof(hash_data));
+        proc_data->access_point = access_point;
+        proc_data->proc_time_info = proc_info->time;
+
+        new_entry.key = proc_info->pid;
+        new_entry.data = proc_data;
+        hash_insert(new_entry); 
+    }
 }
 
 void initialize_task_counters(task_counter *tasks)
@@ -249,7 +266,6 @@ process_info** proc_table_generator(task_counter *tasks, unsigned short access_p
     long long unsigned cpu_total = cpu_total_time();
     cpu_time = cpu_total - cpu_previous_time;
     cpu_previous_time = cpu_total;
-    //printf("\nPID\tUSER\tPR\tNI\tS\t%%CPU\tTIME+\tCOMMAND\n");
     
     if ((directory = opendir (PROC_DIR)) != NULL) 
     {
@@ -268,8 +284,6 @@ process_info** proc_table_generator(task_counter *tasks, unsigned short access_p
                     // Stores the previous time info of the process to calculate the cpu usage per proc
                     time_table_update(proc_info, access_point, cpu_time);
                     update_state_counters(proc_info->state, tasks);
-                    //printf("%d\t%s\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->user_name, proc_info->priority, proc_info->nice,    
-                    //    proc_info->state, proc_info->cpu_percentage, (float)proc_info->time.user_time/100.0, proc_info->command);
                 }
                 free(stat_file_path); 
             }
@@ -345,42 +359,61 @@ process_info* read_proc_stat(const char * stat_file)
 void read_proc_username(process_info* proc_info, char *stat_file) 
 {   
     uid_t user_id = read_proc_uid(stat_file);
-    struct passwd * password_struct = getpwuid(user_id);
     proc_info->user_name = (char*) malloc(USER_NAME_MAX);
-    if(password_struct != NULL)
+    struct passwd *result;
+    struct passwd password_struct; 
+    long buffer_size = sysconf(_SC_GETPW_R_SIZE_MAX);
+    
+    if (buffer_size == -1)          /* Value was indeterminate */
+        buffer_size = 16384;        /* Should be more than enough */
+
+    char *password_buffer= malloc(buffer_size);
+
+    int getpwuid_error = getpwuid_r(user_id, &password_struct, password_buffer, buffer_size, &result);
+
+    if (result == NULL) 
     {
-        if(strlen(password_struct->pw_name) > 9) 
+        if (getpwuid_error == 0)
+            strcpy(proc_info->user_name, "UNKNOWN");
+        else {
+            errno = getpwuid_error;
+            perror("getpwnam_r");
+        }
+    }
+    else
+    {
+        if(strlen(password_struct.pw_name) > 9) 
         {
-            memcpy(proc_info->user_name, password_struct->pw_name, 9);
+            memcpy(proc_info->user_name, password_struct.pw_name, 9);
             proc_info->user_name[8] = '+';
             proc_info->user_name[9] = '\0';
         }
         else 
-            strcpy(proc_info->user_name, password_struct->pw_name);
-    }
-    else 
-        strcpy(proc_info->user_name, "UNKNOWN");
+            strcpy(proc_info->user_name, password_struct.pw_name);
+    }   
 
-    //clear_password_struct(password_struct);
+    //clear_password_struct(&password_struct);
+    free(password_buffer);
 }
 
 void clear_password_struct(struct passwd * password_struct)
 {   
     if(password_struct != NULL)
-    {
-        // if(password_struct->pw_dir != NULL)
-        //     free(password_struct->pw_dir);
+    {   
+        if(password_struct->pw_dir != NULL)
+            free(password_struct->pw_dir);
             
-        // if(password_struct->pw_gecos != NULL)
-        //     free(password_struct->pw_gecos);
+        if(password_struct->pw_gecos != NULL)
+            free(password_struct->pw_gecos);
 
-        // if(password_struct->pw_passwd != NULL)
-        //     free(password_struct->pw_passwd);
+        if(password_struct->pw_name != NULL)
+            free(password_struct->pw_name);
             
-        // if(password_struct->pw_shell != NULL)
-        //     free(password_struct->pw_shell);
+        if(password_struct->pw_passwd != NULL)
+            free(password_struct->pw_passwd);
             
-        free(password_struct);
+        if(password_struct->pw_shell != NULL)
+            free(password_struct->pw_shell);
     }
 }
 
@@ -426,24 +459,25 @@ int handle_file_open(FILE **file_stream, const char* mode, const char *file_name
 
 void clear_time_table(hash_entry* time_table)
 {
-    for (int i = HASH_TABLE_MAX -1; i >= 0; i--)
+    hash_data* data;
+    for (int i = 0; i < HASH_TABLE_MAX; i++)
     {   
-        if(time_table[i].data != NULL)
-            free((hash_data*)time_table[i].data);
+        if(time_table[i].key != -1)
+        {
+            data = (hash_data*) time_table[i].data;
+            free(data);
+        }
     }
     free(time_table);
 }
 
 void clear_process_info_table(process_info ** process_info_table, int table_size)
 {
-    for(int i = table_size - 1; i >= 0; i--)
+    for(int i = table_size - 2; i >= 0; i--)
     {   
-        if(process_info_table[i] != NULL)
-        {
-            free(&process_info_table[i]->user_name);
-            free(&process_info_table[i]->command);
-            free(process_info_table[i]);
-        }
+        free(process_info_table[i]->user_name);
+        free(process_info_table[i]->command);
+        free(process_info_table[i]); 
     }
     free(process_info_table);
 }
@@ -463,7 +497,7 @@ long long unsigned cpu_total_time()
     }
 
     fscanf(proc_stat_filestream,"%*s %llu %llu %llu %llu", &user, &nice, &system, &idle);
-    total_time = user  + system + system + idle; 
+    total_time = user + system + system + idle; 
 
     fclose(proc_stat_filestream);
 
@@ -482,11 +516,11 @@ float get_cpu_usage(time_info proc_time_previous, time_info proc_time_current, l
 }
 
 static int compare_processes(const void * a, const void * b) 
-{
-    process_info* proc_a = (process_info *) a;
-    process_info* proc_b = (process_info *) b;
+{   
+    process_info* proc_a = *((process_info **) a);
+    process_info* proc_b = *((process_info **) b);
     int x = proc_a->cpu_percentage * 100;
-    int y = proc_a->cpu_percentage * 100;
+    int y = proc_b->cpu_percentage * 100;
     int diff = (y - x);
     
     // sort by pid
@@ -515,4 +549,15 @@ void write_info_in_memory(task_counter tasks, process_info** process_info_table,
             proc_info->nice, proc_info->state, proc_info->cpu_percentage, (float)proc_info->time.user_time/100.0, 
             proc_info->command);
     }
+}
+
+void print_process_info_table(process_info **proc_info_table, int size) 
+{   
+    printf("\nPID\tUSER\t\tPR\tNI\tS\t%%CPU\tTIME+\tCOMMAND\n");
+
+    for(int i = 0; i < size; i++)
+        printf("%d\t%s\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info_table[i]->pid, 
+            proc_info_table[i]->user_name, proc_info_table[i]->priority, proc_info_table[i]->nice,
+            proc_info_table[i]->state,proc_info_table[i]->cpu_percentage,
+            (float)proc_info_table[i]->time.user_time/100.0, proc_info_table[i]->command);               
 }

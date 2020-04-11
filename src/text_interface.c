@@ -3,10 +3,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define SHARED_MEM_SIZE      63489
-#define SHARED_MEM_KEY       56373
-#define SHARED_MEM_FLAGS     S_IRWXG | S_IRWXU | S_ISUID | IPC_CREAT
-
 #define HEADER_COLOR 1
 
 typedef struct _WIN_struct {
@@ -21,7 +17,20 @@ void create_box(WIN *win, bool flag);
 //TODO: ir sumindo com as colunas da direita conforme a janela for sendo reduzida
 int main(int argc, char *argv[])
 {	
-	char *shared = (char*) atoll(argv[1]);
+	int memory_segment_id;
+	char* shared_memory;
+
+    if(argc != 2) {
+        printf("Usage: ./text_interface <segment_id>");
+        exit(-1);
+    }
+
+	memory_segment_id = atoi(argv[1]);
+    //printf("\nSegment ID in process manager : %d\n", segment_id);
+
+	/** attach the shared memory segment */
+	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
+	//printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
 	
     //WINDOW *process_list_window; 
     WIN win;
@@ -53,9 +62,9 @@ int main(int argc, char *argv[])
     //QUARTO: VERIFICAÇÃO DE BUFFER PARA COMANDOS COMO KILL, SCROLL UP E SCROLL DOWN
 	while((ch = getch()) != 'q')
 	{	
+		
         switch(ch)
 		{	
-            //TODO: popular a lista com as linhas em ordem crescente de PID
 			case KEY_UP:
 				--win.starty;
 				break;
@@ -69,7 +78,7 @@ int main(int argc, char *argv[])
 				++win.startx;
 				break;
 			case 'k':
-				printw("Entrou no kill : %c", shared[1]);
+				printw("Entrou no kill!");
 				refresh();
 				break;
 			default:
@@ -81,8 +90,11 @@ int main(int argc, char *argv[])
 	
 	endwin(); // End curses mode
 	
-	// tells the other programs that text_interface has ended
-	memcpy(shared, "\x01", sizeof(char));
+	/** now detach the shared memory segment */ 
+	if ( shmdt(shared_memory) == -1) 
+    {
+		fprintf(stderr, "Unable to detach\n");
+	}
 
 	return 0;
 }
