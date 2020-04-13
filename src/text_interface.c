@@ -295,10 +295,11 @@ char* format_time(unsigned int time)
 	int centi_secs = time % 100;
 	time = time / 100;
 	int seconds = time % 60;
+	time = time / 60;
 	if(seconds < 10)
-		sprintf(formatted_time, "%2d:0%d", time/60, time_mod);
+		sprintf(formatted_time, "%3d:0%d:%02d", time, seconds, centi_secs);
 	else
-		sprintf(formatted_time, "%2d:%d", time/60, time_mod);
+		sprintf(formatted_time, "%3d:%d:%02d", time, seconds, centi_secs);
 	
 	return formatted_time;
 }
