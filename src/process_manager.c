@@ -512,7 +512,7 @@ void write_info_in_memory(task_counter tasks, process_info** process_info_table,
         // write every row
         process_info* proc_info = process_info_table[i];
         sprintf(shared_memory, "%d\t%s\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->user_name,proc_info->priority, 
-            proc_info->nice, proc_info->state, proc_info->cpu_percentage, proc_info->cpu_time/sysconf(_SC_CLK_TCK), 
+            proc_info->nice, proc_info->state, proc_info->cpu_percentage, proc_info->cpu_time * 100/sysconf(_SC_CLK_TCK), 
             proc_info->command);
     }
 }

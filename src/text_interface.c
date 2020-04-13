@@ -20,7 +20,7 @@ typedef struct
     unsigned int sleeping_counter;
     unsigned int stopped_counter;
     unsigned int zombie_counter;
-} task_counter;
+	} task_counter;
 
 typedef struct process_info
 {
@@ -197,6 +197,24 @@ process_info ** reallocate_proc_list(process_info ** proc_info_table, int num_pr
 	return proc_info_table;
 }
 
+void test_allocations()
+{
+	int num_procs_test = 200;
+	process_info** proc_info_table =  allocate_proc_list(num_procs_test);
+	for(int i = 0; i < num_procs_test; i++)
+		assert(proc_info_table[i] != NULL);
+	proc_info_table = reallocate_proc_list(proc_info_table, num_procs_test + 50, num_procs_test);
+	num_procs_test = num_procs_test + 50;
+	for(int i = 0; i < num_procs_test; i++)
+		assert(proc_info_table[i] != NULL);
+	proc_info_table = reallocate_proc_list(proc_info_table, num_procs_test - 100, num_procs_test);
+	num_procs_test = num_procs_test - 100;
+	for(int i = 0; i < num_procs_test; i++)
+		assert(proc_info_table[i] != NULL);
+}	
+
+
+
 void read_summary_from_memory(task_counter* tasks, char* shared_memory)
 { 
     // read tasks
@@ -274,8 +292,10 @@ char* format_time(unsigned int time)
 {
 	char * formatted_time = calloc(16, sizeof(char));
 	
-	int time_mod = time % 60;
-	if(time_mod < 10)
+	int centi_secs = time % 100;
+	time = time / 100;
+	int seconds = time % 60;
+	if(seconds < 10)
 		sprintf(formatted_time, "%2d:0%d", time/60, time_mod);
 	else
 		sprintf(formatted_time, "%2d:%d", time/60, time_mod);
