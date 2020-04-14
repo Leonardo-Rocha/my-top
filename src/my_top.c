@@ -12,7 +12,7 @@
 
 #define TEXT_INTERFACE_FILE  "./build/text_interface" 
 #define PROCESS_MANAGER_FILE "./build/process_manager"
-#define SEGMENT_SIZE 32768
+#define SEGMENT_SIZE 65560
 
 #define BUFFER_SIZE 600
 

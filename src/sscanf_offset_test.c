@@ -2,15 +2,15 @@
 
 int main(void) {
   char string[] = "3 172 0 228 0 8483 leonardo 20 15 root 30";
-  unsigned a, b, c, d, e, offset = 0, scanf_result = 1;
+  unsigned a, b, c, d, e, offset = 0, scanf_result = 1, print_offset = 0;
   long pid = 0;
   char user[10];
   char *data = string;
 
   sscanf(string, "%u %u %u %u %u ", &a, &b, &c, &d, &e);
 
-  printf("a = %u, b = %u, c = %u, d = %u, e = %u\n", a,b,c,d,e);
-
+  printf("a = %u, b = %u, c = %u, d = %u, e = %u\n%n", a,b,c,d,e, &print_offset);
+  printf("print_offset : %d\n", print_offset);
   sscanf(string, "%*u %*u %*u %*u %*u%n", &offset);
   printf("offset : %d\n", offset);
   data += offset;

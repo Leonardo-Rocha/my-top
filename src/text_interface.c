@@ -94,11 +94,11 @@ int main(int argc, char *argv[])
     }
 
 	memory_segment_id = atoi(argv[1]);
-    //printf("\nSegment ID in process manager : %d\n", segment_id);
+    printf("\nSegment ID in process manager : %d\n", memory_segment_id);
 
 	/** attach the shared memory segment */
 	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
-	//printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
+	printf("shared memory segment %d attached at address %p\n", memory_segment_id, shared_memory);
 	
 	WINDOW *summary_window;
     WINDOW *process_list_window; 
@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
 	while(1)
 	{	
 		read_summary_from_memory(&tasks, shared_memory);
-		// read_summary_from_file(read_file, &tasks);
+		//read_summary_from_file(read_file, &tasks);
 		process_info_table = reallocate_proc_list(process_info_table, tasks.valid_counter, previous_num_proc);
 		previous_num_proc = tasks.valid_counter;
 
@@ -153,9 +153,6 @@ int main(int argc, char *argv[])
 		ch = getch();
 		
 		// TODO: corrigir linha não limpando. 
-		move(1, 0);
-		clrtoeol();
-		refresh();
 		// buffer verification for commands like kill, arrow keys and quit
 		switch(ch)
 		{	
@@ -187,38 +184,46 @@ int main(int argc, char *argv[])
 				{	
 					pid_to_kill = (pid_t) strtol_result;
 					kill(pid_to_kill, SIGKILL);
-					mvprintw(1, 0, "SIGKILL sent to PID %d]: ", pid_to_kill);
+					move(1, 0);
+					clrtoeol();
+					mvprintw(1, 0, "SIGKILL sent to PID %d", pid_to_kill);
 				}
 				else if(strtol_result == 0 && read_string[0] == '\n') 
 				{
 					kill(pid_to_kill, SIGKILL);
-					mvprintw(1, 0, "SIGKILL sent to PID %d]: ", pid_to_kill);
+					move(1, 0);
+					clrtoeol();
+					mvprintw(1, 0, "SIGKILL sent to PID %d", pid_to_kill);
 				}
 				else 
 				{
+					move(1, 0);
+					clrtoeol();
 					mvprintw(1, 0, "Invalid integer!");
-				}
-				refresh();				
-				noecho();		
+				}				
+				noecho();
+				halfdelay(20);		
 				break;
 			case 'q':
 				quit = 1;
 				break;
 			case ERR:
+				move(1, 0);
+				clrtoeol();
 				break;
 			default:
 				mvprintw(1, 0, "Unknown command - read README for more info");
-				refresh();
 				break;
 		}
 		if(quit)
 			break;
+		refresh();
 	}
 	clear_process_info_table(process_info_table, tasks.valid_counter);
 	
-	delwin(summary_window);
+	delwin(summary_window);	
 	delwin(process_list_window);
-
+	echo();
 	endwin(); // End curses mode
 
 	/** now detach the shared memory segment */ 
@@ -337,7 +342,7 @@ void read_summary_from_file(FILE* read_file, task_counter* tasks)
 { 
     // read tasks
 	fseek(read_file, 0, SEEK_SET);
-    fscanf(read_file, "%u %u %u %u %u\n", &(tasks->running_counter), &(tasks->sleeping_counter), 
+    fscanf(read_file, " %u %u %u %u %u\n", &(tasks->running_counter), &(tasks->sleeping_counter), 
         &(tasks->stopped_counter), &(tasks->valid_counter), &(tasks->zombie_counter));
 }
 
@@ -347,7 +352,7 @@ void read_processes_from_file(FILE* read_file, int num_proc, process_info** proc
     {
 		// write every row
         process_info* proc_info = process_info_table[i];
-        fscanf(read_file, "%d %s %d %d %c %f %u %s\n", &(proc_info->pid), proc_info->user_name,
+        fscanf(read_file, " %d %s %d %d %c %f %u %s\n", &(proc_info->pid), proc_info->user_name,
 			&(proc_info->priority), &(proc_info->nice), &(proc_info->state), &(proc_info->cpu_percentage), 
 			&(proc_info->cpu_time), proc_info->command);
     }
@@ -360,7 +365,7 @@ void read_process_list_from_memory(process_info** process_info_table, char* shar
 	char *current_string_address = shared_memory;
 
 	// offsets from the summary
-	sscanf(shared_memory, "%*u %*u %*u %*u %*u %n", &offset);
+	sscanf(shared_memory, "%*u %*u %*u %*u %*u\n%n", &offset);
 	current_string_address += offset;
 
 	// loop through processes

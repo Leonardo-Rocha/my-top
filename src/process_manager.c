@@ -121,45 +121,44 @@ int main(int argc, char *argv[])
     process_info** process_info_table;
     task_counter tasks = {0,0,0,0,0};
     unsigned short access_point = 0;
-	// int memory_segment_id;
-	// char* shared_memory;
+	int memory_segment_id;
+	char* shared_memory;
 
-    // if(argc != 2) {
-    //     printf("Usage: ./process_manager <segment_id>");
-    //     exit(-1);
-    // }
+    if(argc != 2) {
+        printf("Usage: ./process_manager <segment_id>");
+        exit(-1);
+    }
 
-	// memory_segment_id = atoi(argv[1]);
-    // //printf("\nSegment ID in process manager : %d\n", segment_id);
+	memory_segment_id = atoi(argv[1]);
+    printf("\nSegment ID in process manager : %d\n", memory_segment_id);
 
-	// /** attach the shared memory segment */
-	// shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
-	// //printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
+	/** attach the shared memory segment */
+	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
+	printf("shared memory segment %d attached at address %p\n", memory_segment_id, shared_memory);
 
     hash_entry* time_table = hash_create(HASH_TABLE_MAX);
     process_info_table = proc_table_generator(&tasks, access_point);
     clear_process_info_table(process_info_table, tasks.valid_counter);
     access_point++;
     access_point = access_point % ACCESS_POINT_MAX;
-    // while(1)
-    // {
+    while(1)
+    {
         initialize_task_counters(&tasks); 
         sleep(1);
         process_info_table = proc_table_generator(&tasks, access_point);
         qsort(process_info_table, tasks.valid_counter - 1, sizeof(process_info*), compare_processes);
-        //write_info_in_memory(tasks, process_info_table, shared_memory);
-        print_process_info_table(process_info_table, tasks, 1);
+        write_info_in_memory(tasks, process_info_table, shared_memory);
         clear_process_info_table(process_info_table, tasks.valid_counter);
         time_table_flush(time_table, access_point);
         access_point++;
         access_point = access_point % ACCESS_POINT_MAX;   
-    // }
+   }
 
-    // /** now detach the shared memory segment */ 
-	// if ( shmdt(shared_memory) == -1) 
-    // {
-	// 	fprintf(stderr, "Unable to detach\n");
-	// }
+    /** now detach the shared memory segment */ 
+	if ( shmdt(shared_memory) == -1) 
+    {
+		fprintf(stderr, "Unable to detach\n");
+	}
 
     clear_time_table(time_table);
 
@@ -316,6 +315,16 @@ char* get_stat_file_path(char* pid, int proc_dir_length, int stat_dir_length)
     return stat_file_path;
 }
 
+void parse_command(char **string) 
+{
+  char* c = *string;
+  int str_len  = strlen(*string) - 1;
+  c += str_len;
+  *string =  realloc(*string, str_len);
+  // consome o ')'
+  *c = '\0';
+}
+
 process_info* read_proc_stat(const char * stat_file)
 {
     FILE * stat_filestream;
@@ -326,7 +335,9 @@ process_info* read_proc_stat(const char * stat_file)
         
     process_info* process = (process_info *) malloc(sizeof(process_info));
     process->command = (char*) malloc(COMMAND_MAX);  
-    fscanf(stat_filestream, "%d%s%*c%c", &(process->pid), process->command, &process->state);
+    fscanf(stat_filestream, "%d(%s%*c%c", &(process->pid), process->command, &process->state);
+    // parse_command(&(process->command));
+    // printf("command :%s\n", process->command);
     //This Process is dead, move on
     if(process->state == 'X')
     {
@@ -505,16 +516,21 @@ static int compare_processes(const void * a, const void * b)
 void write_info_in_memory(task_counter tasks, process_info** process_info_table, char* shared_memory)
 { 
     // write tasks
-    sprintf(shared_memory, "%u %u %u %u %u ", tasks.running_counter, tasks.sleeping_counter, 
-        tasks.stopped_counter, tasks.valid_counter, tasks.zombie_counter);
+    unsigned print_offset = 0;
+    char* memory_cursor = shared_memory;
+    sprintf(memory_cursor, "%u %u %u %u %u\n%n", tasks.running_counter, tasks.sleeping_counter, 
+        tasks.stopped_counter, tasks.valid_counter, tasks.zombie_counter, &print_offset);
     // loop through process_info_table
+    memory_cursor += print_offset;
     for(int i = 0; i < tasks.valid_counter - 1; i++) 
     {
         // write every row
         process_info* proc_info = process_info_table[i];
-        sprintf(shared_memory, "%d %s %d %d %c %3.2f %u %s\n", proc_info->pid, proc_info->user_name,proc_info->priority, 
+        parse_command(&(proc_info->command));
+        sprintf(memory_cursor, "%d %s %d %d %c %3.2f %u %s\n%n", proc_info->pid, proc_info->user_name,proc_info->priority, 
             proc_info->nice, proc_info->state, proc_info->cpu_percentage, (unsigned) (proc_info->cpu_time * 100/sysconf(_SC_CLK_TCK)), 
-            proc_info->command);
+            proc_info->command, &print_offset);
+        memory_cursor += print_offset;
     }
 }
 
