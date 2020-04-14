@@ -14,6 +14,7 @@
 #define PROC_DIR         "/proc"
 #define STAT_DIR         "/stat"
 #define PROC_STAT_PATH   "/proc/stat"
+#define OUTPUT_FILE_PATH "output.txt"
 #define TRASH_SIZE       10 
 #define BUFFER_SIZE      200
 #define ACCESS_POINT_MAX 100
@@ -112,53 +113,53 @@ void initialize_task_counters(task_counter *tasks);
 /* Writes all table info into the shared memory*/
 void write_info_in_memory(task_counter tasks, process_info** process_info_table, char* shared_memory);
 
-/* Print all process with a pretty header. */
-void print_process_info_table(process_info ** proc_info_table, int size);
+/* Print all process with a pretty format. Prints to the stdout if write_to_file == 0. */
+void print_process_info_table(process_info **proc_info_table, task_counter tasks, short write_to_file);
 
 int main(int argc, char *argv[]) 
 {   
     process_info** process_info_table;
     task_counter tasks = {0,0,0,0,0};
     unsigned short access_point = 0;
-	int memory_segment_id;
-	char* shared_memory;
+	// int memory_segment_id;
+	// char* shared_memory;
 
-    if(argc != 2) {
-        printf("Usage: ./process_manager <segment_id>");
-        exit(-1);
-    }
+    // if(argc != 2) {
+    //     printf("Usage: ./process_manager <segment_id>");
+    //     exit(-1);
+    // }
 
-	memory_segment_id = atoi(argv[1]);
-    //printf("\nSegment ID in process manager : %d\n", segment_id);
+	// memory_segment_id = atoi(argv[1]);
+    // //printf("\nSegment ID in process manager : %d\n", segment_id);
 
-	/** attach the shared memory segment */
-	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
-	//printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
+	// /** attach the shared memory segment */
+	// shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
+	// //printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
 
     hash_entry* time_table = hash_create(HASH_TABLE_MAX);
     process_info_table = proc_table_generator(&tasks, access_point);
     clear_process_info_table(process_info_table, tasks.valid_counter);
     access_point++;
     access_point = access_point % ACCESS_POINT_MAX;
-    while(1)
-    {
+    // while(1)
+    // {
         initialize_task_counters(&tasks); 
         sleep(1);
         process_info_table = proc_table_generator(&tasks, access_point);
         qsort(process_info_table, tasks.valid_counter - 1, sizeof(process_info*), compare_processes);
-        //print_process_info_table(process_info_table, tasks.valid_counter - 1);
-        write_info_in_memory(tasks, process_info_table, shared_memory);
+        //write_info_in_memory(tasks, process_info_table, shared_memory);
+        print_process_info_table(process_info_table, tasks, 1);
         clear_process_info_table(process_info_table, tasks.valid_counter);
         time_table_flush(time_table, access_point);
         access_point++;
         access_point = access_point % ACCESS_POINT_MAX;   
-    }
+    // }
 
-    /** now detach the shared memory segment */ 
-	if ( shmdt(shared_memory) == -1) 
-    {
-		fprintf(stderr, "Unable to detach\n");
-	}
+    // /** now detach the shared memory segment */ 
+	// if ( shmdt(shared_memory) == -1) 
+    // {
+	// 	fprintf(stderr, "Unable to detach\n");
+	// }
 
     clear_time_table(time_table);
 
@@ -504,26 +505,38 @@ static int compare_processes(const void * a, const void * b)
 void write_info_in_memory(task_counter tasks, process_info** process_info_table, char* shared_memory)
 { 
     // write tasks
-    sprintf(shared_memory, "%u%u%u%u%u", tasks.running_counter, tasks.sleeping_counter, 
+    sprintf(shared_memory, "%u %u %u %u %u ", tasks.running_counter, tasks.sleeping_counter, 
         tasks.stopped_counter, tasks.valid_counter, tasks.zombie_counter);
     // loop through process_info_table
     for(int i = 0; i < tasks.valid_counter; i++) 
     {
         // write every row
         process_info* proc_info = process_info_table[i];
-        sprintf(shared_memory, "%d\t%s\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info->pid, proc_info->user_name,proc_info->priority, 
+        sprintf(shared_memory, "%d %s %d %d %c %3.2f %u %s\n", proc_info->pid, proc_info->user_name,proc_info->priority, 
             proc_info->nice, proc_info->state, proc_info->cpu_percentage, proc_info->cpu_time * 100/sysconf(_SC_CLK_TCK), 
             proc_info->command);
     }
 }
 
-void print_process_info_table(process_info **proc_info_table, int size) 
+void print_process_info_table(process_info **proc_info_table, task_counter tasks, short write_to_file) 
 {   
-    printf("\nPID\tUSER\t\tPR\tNI\tS\t%%CPU\tTIME+\tCOMMAND\n");
+    FILE* write_file;
+    int file_open_result = handle_file_open(&write_file, "w", OUTPUT_FILE_PATH);
 
-    for(int i = 0; i < size; i++)
-        printf("%d\t%s\t%d\t%d\t%c\t%3.2f\t%.2f\t%s\n", proc_info_table[i]->pid, 
+    if(file_open_result == -1)
+        return;
+
+    FILE* output = write_to_file == 0 ? stdout : write_file; 
+    int size = tasks.valid_counter;
+
+    fprintf(output, "%u %u %u %u %u ", tasks.running_counter, tasks.sleeping_counter, 
+        tasks.stopped_counter, tasks.valid_counter, tasks.zombie_counter);
+
+    for(int i = 0; i < size - 1; i++)
+        fprintf(output, "%d %s %d %d %c %3.2f %u %s\n", proc_info_table[i]->pid, 
             proc_info_table[i]->user_name, proc_info_table[i]->priority, proc_info_table[i]->nice,
             proc_info_table[i]->state,proc_info_table[i]->cpu_percentage,
-            (float)proc_info_table[i]->time.user_time/100.0, proc_info_table[i]->command);               
+            proc_info_table[i]->cpu_time*100/sysconf(_SC_CLK_TCK), proc_info_table[i]->command);      
+        
+    fclose(write_file);
 }
