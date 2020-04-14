@@ -11,16 +11,17 @@
 #include <unistd.h>
 #include <pwd.h>
 
-#define PROC_DIR         "/proc"
-#define STAT_DIR         "/stat"
-#define PROC_STAT_PATH   "/proc/stat"
-#define OUTPUT_FILE_PATH "output.txt"
-#define TRASH_SIZE       10 
-#define BUFFER_SIZE      200
-#define ACCESS_POINT_MAX 100
-#define HASH_TABLE_MAX   600
-#define COMMAND_MAX      64
-#define USER_NAME_MAX    10
+#define PROC_DIR          "/proc"
+#define STAT_DIR          "/stat"
+#define PROC_STAT_PATH    "/proc/stat"
+#define PROC_CPUINFO_FILE "/proc/cpuinfo"
+#define OUTPUT_FILE_PATH  "output.txt"
+#define TRASH_SIZE        10 
+#define BUFFER_SIZE       200
+#define ACCESS_POINT_MAX  100
+#define HASH_TABLE_MAX    600
+#define COMMAND_MAX       64
+#define USER_NAME_MAX     10
 
 typedef struct
 {
@@ -86,6 +87,9 @@ void proc_cpu_update(process_info* proc_info, long long unsigned cpu_time);
 /* Returns the cpu usage of a process using a sample of time and doing current - previous. */
 float get_cpu_usage(time_info proc_time_previous, time_info proc_time_current, long long unsigned cpu_time);
 
+/* Returns the num of cpus to calculate cpu percentage. */
+unsigned int get_num_cpus();
+
 /* Returns the cpu_total_time = (user + nice + system + idle) using cpu times(first line of /proc/stat) */
 long long unsigned cpu_total_time();
 
@@ -116,6 +120,8 @@ void write_info_in_memory(task_counter tasks, process_info** process_info_table,
 /* Print all process with a pretty format. Prints to the stdout if write_to_file == 0. */
 void print_process_info_table(process_info **proc_info_table, task_counter tasks, short write_to_file);
 
+unsigned int num_cpus;
+
 int main(int argc, char *argv[]) 
 {   
     process_info** process_info_table;
@@ -130,17 +136,20 @@ int main(int argc, char *argv[])
     }
 
 	memory_segment_id = atoi(argv[1]);
-    printf("\nSegment ID in process manager : %d\n", memory_segment_id);
+    // printf("\nSegment ID in process manager : %d\n", memory_segment_id);
 
 	/** attach the shared memory segment */
 	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
-	printf("shared memory segment %d attached at address %p\n", memory_segment_id, shared_memory);
+	// printf("shared memory segment %d attached at address %p\n", memory_segment_id, shared_memory);
+
+    num_cpus = get_num_cpus();
 
     hash_entry* time_table = hash_create(HASH_TABLE_MAX);
     process_info_table = proc_table_generator(&tasks, access_point);
     clear_process_info_table(process_info_table, tasks.valid_counter);
     access_point++;
     access_point = access_point % ACCESS_POINT_MAX;
+
     while(1)
     {
         initialize_task_counters(&tasks); 
@@ -335,7 +344,7 @@ process_info* read_proc_stat(const char * stat_file)
         
     process_info* process = (process_info *) malloc(sizeof(process_info));
     process->command = (char*) malloc(COMMAND_MAX);  
-    fscanf(stat_filestream, "%d(%s%*c%c", &(process->pid), process->command, &process->state);
+    fscanf(stat_filestream, "%d%s%*c%c", &(process->pid), process->command, &process->state);
     // parse_command(&(process->command));
     // printf("command :%s\n", process->command);
     //This Process is dead, move on
@@ -491,7 +500,29 @@ float get_cpu_usage(time_info proc_time_previous, time_info proc_time_current, l
     if(cpu_time != 0)
         cpu_usage = 100.0 * (float) ((double) (total_time_current - total_time_previous)  /(double) cpu_time);
 
-    return cpu_usage;
+    return cpu_usage * num_cpus;
+}
+
+unsigned int get_num_cpus()
+{
+    FILE* cpu_info_file;
+    char parse_buffer[32];
+    unsigned int num_cpus;
+    int file_open_return = handle_file_open(&cpu_info_file, "r", PROC_CPUINFO_FILE);
+    
+    if(file_open_return == -1)
+        return 1;
+        
+    do
+    {
+      fscanf(cpu_info_file, "%s", parse_buffer);
+    } while(strcmp(parse_buffer, "siblings"));
+
+    fscanf(cpu_info_file, "\t: %u", &num_cpus);
+
+    fclose(cpu_info_file);
+
+    return num_cpus;
 }
 
 static int compare_processes(const void * a, const void * b) 
@@ -526,7 +557,7 @@ void write_info_in_memory(task_counter tasks, process_info** process_info_table,
     {
         // write every row
         process_info* proc_info = process_info_table[i];
-        parse_command(&(proc_info->command));
+        // parse_command(&(proc_info->command));
         sprintf(memory_cursor, "%d %s %d %d %c %3.2f %u %s\n%n", proc_info->pid, proc_info->user_name,proc_info->priority, 
             proc_info->nice, proc_info->state, proc_info->cpu_percentage, (unsigned) (proc_info->cpu_time * 100/sysconf(_SC_CLK_TCK)), 
             proc_info->command, &print_offset);

@@ -94,11 +94,11 @@ int main(int argc, char *argv[])
     }
 
 	memory_segment_id = atoi(argv[1]);
-    printf("\nSegment ID in process manager : %d\n", memory_segment_id);
+    // printf("\nSegment ID in process manager : %d\n", memory_segment_id);
 
 	/** attach the shared memory segment */
 	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
-	printf("shared memory segment %d attached at address %p\n", memory_segment_id, shared_memory);
+	// printf("shared memory segment %d attached at address %p\n", memory_segment_id, shared_memory);
 	
 	WINDOW *summary_window;
     WINDOW *process_list_window; 
@@ -187,8 +187,9 @@ int main(int argc, char *argv[])
 					move(1, 0);
 					clrtoeol();
 					mvprintw(1, 0, "SIGKILL sent to PID %d", pid_to_kill);
+					read_string[0] = '\0';
 				}
-				else if(strtol_result == 0 && read_string[0] == '\n') 
+				else if(strtol_result == 0 || read_string[0] == '\n') 
 				{
 					kill(pid_to_kill, SIGKILL);
 					move(1, 0);
@@ -200,7 +201,8 @@ int main(int argc, char *argv[])
 					move(1, 0);
 					clrtoeol();
 					mvprintw(1, 0, "Invalid integer!");
-				}				
+				}
+				// back to default settings				
 				noecho();
 				halfdelay(20);		
 				break;
