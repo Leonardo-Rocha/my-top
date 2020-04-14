@@ -4,18 +4,16 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <assert.h>
+#include <sys/shm.h>
+#include <sys/types.h>
+#include <signal.h>
 
 #define INPUT_FILE_PATH  "output.txt"
 #define COMMAND_MAX      64
 #define USER_NAME_MAX    10
-#define HEADER_COLOR 1
-#define BUFFER_SIZE 200
-#define MAX_ITERS 1000
-
-typedef struct _WIN_struct {
-	int startx, starty;
-	int height, width;
-} WIN;
+#define HEADER_COLOR     1
+#define BUFFER_SIZE      200
+#define MAX_ITERS 		 1000
 
 typedef struct 
 {
@@ -53,7 +51,7 @@ void read_processes_from_file(FILE* read_file, int num_proc, process_info** proc
 
 void print_summary(task_counter tasks, WINDOW* summary_window);
 
-void print_top_table(process_info** proc_info_table, int start_index, WINDOW* process_list_window);
+void print_top_table(process_info** proc_info_table, int num_proc, int start_index, WINDOW* process_list_window);
 
 /* formats seconds to minutes:seconds.cents */
 char* format_time(unsigned int time);
@@ -73,124 +71,163 @@ void test_allocations();
 /*								*/
 void test_sucessive_reads();
 
-//TODO: ir sumindo com as colunas da direita conforme a janela for sendo reduzida
 int main(int argc, char *argv[])
 {	
-	// int memory_segment_id;
-	// char* shared_memory;
+	int memory_segment_id;
+	char* shared_memory;
 
-	// process_info** process_info_table;
-	// task_counter tasks; 
+	process_info** process_info_table;
+	task_counter tasks; 
 
-	// int max_rows, max_cols, current_col, current_row;
-	// int previous_num_proc = 0, internal_loop, start_index = 0, iter_control = 1;
+	int max_rows, max_cols, current_col, current_row, quit = 0;
+	int previous_num_proc = 0, processes_start_y = 0;
+	int ch;
+	long strtol_result;
+	pid_t pid_to_kill;
+	char read_string[32] = "\n";
 	// FILE* read_file;
 
-    // if(argc != 2) {
-    //     printf("Usage: ./text_interface <segment_id>");
-    //     exit(-1);
-    // }
+    if(argc != 2) 
+	{
+        printf("Usage: ./text_interface <segment_id>");
+        exit(-1);
+    }
 
-	// memory_segment_id = atoi(argv[1]);
-    // //printf("\nSegment ID in process manager : %d\n", segment_id);
+	memory_segment_id = atoi(argv[1]);
+    //printf("\nSegment ID in process manager : %d\n", segment_id);
 
-	// /** attach the shared memory segment */
-	// shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
-	// //printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
+	/** attach the shared memory segment */
+	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
+	//printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
 	
-	// WINDOW *summary_window;
-	// //TODO: set process list window position after header
-    // WINDOW *process_list_window; 
-    // WIN win;
+	WINDOW *summary_window;
+    WINDOW *process_list_window; 
 
-    // int ch; 
+	initscr();			  // Start curses mode 
+    raw();                // Line buffering disabled
+	halfdelay(20);		  // When we do getch(), wait for 2 seconds before return ERR value		 
+    noecho();             // Don't echo while we do getch() 
+    keypad(stdscr, TRUE); // enables keypad to use the arrow keys to scroll on the process list 
+	curs_set(0);
+    start_color();
+    init_pair(HEADER_COLOR, COLOR_BLACK, COLOR_WHITE);
 
-	// initscr();			  // Start curses mode 
-    // cbreak();             // Line buffering disabled 
-    // noecho();             // Don't echo while we do getch() 
-    // keypad(stdscr, TRUE); // enables keypad to use the arrow keys to scroll on the process list 
-    // start_color();
-    // init_pair(HEADER_COLOR, COLOR_BLACK, COLOR_WHITE);
+	getmaxyx(stdscr, max_rows, max_cols);
 
-    // //Initialize the window parameters 
-	// // init_win_params(&win);
-	// // print_win_params(&win);
-	// getmaxyx(stdscr, max_rows, max_cols);
+	// initialize the windows
+	summary_window = newwin(1, max_cols, 0, 0);
+	process_list_window = newwin(max_rows - 3, max_cols, 3, 0);
 
-	// summary_window = newwin(1, max_cols, 0, 0);
-	// process_list_window = newwin(max_rows - 2, max_cols, 3, 0);
+	// prints header
+	attron(COLOR_PAIR(HEADER_COLOR));
+	mvprintw(2, 0, " PID\tUSER     \t PR\t NI\tS\t%%CPU  \t    TIME+\tCOMMAND");
+	// fills the rest of the header with HEADER_COLOR
+	getyx(stdscr, current_row, current_col);
+	current_row++;
+	for(int i = current_col; i < max_cols; i++) addch(' ');
+	refresh();
+	attroff(COLOR_PAIR(HEADER_COLOR));
 
-	// attron(COLOR_PAIR(HEADER_COLOR));
-	// mvprintw(2, 0, " PID\tUSER     \t PR\t NI\tS\t  %%CPU\t    TIME+\tCOMMAND");
-	// // fills the rest of the header with HEADER_COLOR
-	// getyx(stdscr, current_row, current_col);
-	// current_row++;
-	// for(int i = current_col; i < max_cols; i++) addch(' ');
-	// refresh();
-	// attroff(COLOR_PAIR(HEADER_COLOR));
+	//Wait process_manager write info in memory
+	sleep(2);
 	
-	// Wait process_manager write info in memory
-	// sleep(2);
-	// //read_summary_from_memory(&tasks, shared_memory); 
+	read_summary_from_memory(&tasks, shared_memory); 
 	// handle_file_open(&read_file, "r", INPUT_FILE_PATH);
-	// process_info_table = allocate_proc_list(tasks.valid_counter);
-	// previous_num_proc = tasks.valid_counter;
-    // //TERCEIRO: VERIFICAÇÃO DE BUFFER PARA COMANDOS COMO KILL, SCROLL UP E SCROLL DOWN
-	// while(iter_control)
-	// {	
-	// 	//read_summary_from_memory(&tasks, shared_memory);
-	// 	read_summary_from_file(read_file, &tasks);
-	// 	process_info_table = reallocate_proc_list(process_info_table, tasks.valid_counter, previous_num_proc);
-	// 	previous_num_proc = tasks.valid_counter;
-	// 	//read_process_list_from_memory(process_info_table, shared_memory, tasks.valid_counter);
-	// 	read_processes_from_file(read_file, tasks.valid_counter, process_info_table);
-	// 	internal_loop = 0;
-	// 	while(internal_loop != MAX_ITERS)
-	// 	{
-	// 		print_summary(tasks, summary_window);
-	// 		print_top_table(process_info_table, start_index, process_list_window);
-    //     	ch = getch();
-	// 		switch(ch)
-	// 		{	
-	// 			case KEY_UP:
-	// 				--win.starty;
-	// 				break;
-	// 			case KEY_DOWN:
-	// 				++win.starty;
-	// 				break;
-	// 			case KEY_LEFT:
-	// 				--win.startx;
-	// 				break;
-	// 			case KEY_RIGHT:
-	// 				++win.startx;
-	// 				break;
-	// 			case 'q':
-	// 				refresh();
-	// 				iter_control = 0;
-	// 				break;
-	// 			default:
-	// 				break;
-	// 		}
-	// 		internal_loop++;
-	// 	}
-	// 	sleep(1);	
-	// }
-	// clear_process_info_table(process_info_table, tasks.valid_counter);
+	// read_summary_from_file(read_file, &tasks);
+	process_info_table = allocate_proc_list(tasks.valid_counter);
+	previous_num_proc = tasks.valid_counter;
+	while(1)
+	{	
+		read_summary_from_memory(&tasks, shared_memory);
+		// read_summary_from_file(read_file, &tasks);
+		process_info_table = reallocate_proc_list(process_info_table, tasks.valid_counter, previous_num_proc);
+		previous_num_proc = tasks.valid_counter;
+
+		read_process_list_from_memory(process_info_table, shared_memory, tasks.valid_counter);
+		// read_processes_from_file(read_file, tasks.valid_counter, process_info_table);
+
+		getmaxyx(process_list_window, max_rows, max_cols);
+		print_summary(tasks, summary_window);
+		print_top_table(process_info_table, tasks.valid_counter, processes_start_y, process_list_window);
+		
+		ch = getch();
+		
+		// TODO: corrigir linha não limpando. 
+		move(1, 0);
+		clrtoeol();
+		refresh();
+		// buffer verification for commands like kill, arrow keys and quit
+		switch(ch)
+		{	
+			case KEY_UP:
+				if(processes_start_y > 0)
+					processes_start_y--;
+				break;
+			case KEY_DOWN:
+				if(processes_start_y < (tasks.valid_counter - max_rows))
+					processes_start_y++;
+				break;
+			case KEY_LEFT:
+				//TODO: ir sumindo com as colunas da direita conforme 
+				// decrease process_start_y
+				break;
+			case KEY_RIGHT:
+				// SUMIR COM AS DA ESQUERDA
+				// increase process_start_x
+				break;
+			case 'k':
+				pid_to_kill = (pid_t) process_info_table[0]->pid;
+				mvprintw(1, 0, "PID to kill [default pid = %d]: ", pid_to_kill);
+				refresh();
+				// turn the echo on so the user can see what he's typing
+				echo();
+				scanw("%s", read_string);
+				strtol_result = strtol(read_string, NULL, 10);
+				if(strtol_result)
+				{	
+					pid_to_kill = (pid_t) strtol_result;
+					kill(pid_to_kill, SIGKILL);
+					mvprintw(1, 0, "SIGKILL sent to PID %d]: ", pid_to_kill);
+				}
+				else if(strtol_result == 0 && read_string[0] == '\n') 
+				{
+					kill(pid_to_kill, SIGKILL);
+					mvprintw(1, 0, "SIGKILL sent to PID %d]: ", pid_to_kill);
+				}
+				else 
+				{
+					mvprintw(1, 0, "Invalid integer!");
+				}
+				refresh();				
+				noecho();		
+				break;
+			case 'q':
+				quit = 1;
+				break;
+			case ERR:
+				break;
+			default:
+				mvprintw(1, 0, "Unknown command - read README for more info");
+				refresh();
+				break;
+		}
+		if(quit)
+			break;
+	}
+	clear_process_info_table(process_info_table, tasks.valid_counter);
 	
-	// delwin(summary_window);
-	// delwin(process_list_window);
+	delwin(summary_window);
+	delwin(process_list_window);
 
-	// endwin(); // End curses mode
-	
-	// /** now detach the shared memory segment */ 
-	// if ( shmdt(shared_memory) == -1) 
-    // {
-	// 	fprintf(stderr, "Unable to detach\n");
-	// }
+	endwin(); // End curses mode
 
-	//fclose(read_file);
+	/** now detach the shared memory segment */ 
+	if ( shmdt(shared_memory) == -1) 
+    {
+		fprintf(stderr, "Unable to detach\n");
+	}
 
-	test_sucessive_reads();
+	// fclose(read_file);
 
 	return 0;
 }
@@ -235,26 +272,10 @@ void clear_process_info_table(process_info ** process_info_table, int table_size
     for(int i = table_size - 1; i >= 0; i--)
     {   
         free(process_info_table[i]); 
+		process_info_table[i] = NULL;
     }
     free(process_info_table);
 }
-
-// void init_win_params(WIN *p_win)
-// {
-// 	p_win->height = 3;
-// 	p_win->width = 10;
-// 	// p_win->starty = (LINES - p_win->height)/2;	
-// 	// p_win->startx = (COLS - p_win->width)/2;
-// }
-
-// void print_win_params(WIN *p_win)
-// {
-// #ifdef _DEBUG
-// 	mvprintw(25, 0, "%d %d %d %d ", p_win->startx, p_win->starty, 
-// 				p_win->width, p_win->height);
-// 	refresh();
-// #endif
-// }
 
 process_info** allocate_proc_list(int num_proc)
 {
@@ -272,14 +293,20 @@ process_info ** reallocate_proc_list(process_info ** proc_info_table, int num_pr
 		for(int i = previous_num_proc; i < num_proc; i++) 
         	proc_info_table[i] = (process_info*) malloc(sizeof(process_info));
 	}
+
 	else if(previous_num_proc > num_proc)
 	{
-		for(int i = previous_num_proc-1; i >= num_proc; i--){ 
-        	free(proc_info_table[i]);
-			proc_info_table[i] = NULL;
+		for(int i = previous_num_proc - 1; i >= num_proc; i--)
+		{
+			if(proc_info_table[i] != NULL)
+			{
+        		free(proc_info_table[i]);
+				proc_info_table[i] = NULL;
+			} 
 		}
 		proc_info_table = (process_info **) realloc(proc_info_table, num_proc * sizeof(process_info*));
 	}
+	
 	return proc_info_table;
 }
 
@@ -309,7 +336,8 @@ void read_summary_from_memory(task_counter* tasks, char* shared_memory)
 void read_summary_from_file(FILE* read_file, task_counter* tasks)
 { 
     // read tasks
-    fscanf(read_file, "%u %u %u %u %u ", &(tasks->running_counter), &(tasks->sleeping_counter), 
+	fseek(read_file, 0, SEEK_SET);
+    fscanf(read_file, "%u %u %u %u %u\n", &(tasks->running_counter), &(tasks->sleeping_counter), 
         &(tasks->stopped_counter), &(tasks->valid_counter), &(tasks->zombie_counter));
 }
 
@@ -323,20 +351,28 @@ void read_processes_from_file(FILE* read_file, int num_proc, process_info** proc
 			&(proc_info->priority), &(proc_info->nice), &(proc_info->state), &(proc_info->cpu_percentage), 
 			&(proc_info->cpu_time), proc_info->command);
     }
-
-	fclose(read_file);
 }
 
 void read_process_list_from_memory(process_info** process_info_table, char* shared_memory, int num_proc)
 {
 	// loop through memory writing to process_info_table
+	int offset = 0;
+	char *current_string_address = shared_memory;
+
+	// offsets from the summary
+	sscanf(shared_memory, "%*u %*u %*u %*u %*u %n", &offset);
+	current_string_address += offset;
+
+	// loop through processes
 	for(int i = 0; i < num_proc - 1; i++) 
     {
-		// write every row
+		// read every proc
         process_info* proc_info = process_info_table[i];
-        sscanf(shared_memory, "%d %s %d %d %c %f %u %s\n", &(proc_info->pid), proc_info->user_name,
+        sscanf(current_string_address, "%d %s %d %d %c %f %u %s\n%n", &(proc_info->pid), proc_info->user_name,
 			&(proc_info->priority), &(proc_info->nice), &(proc_info->state), &(proc_info->cpu_percentage), 
-			&(proc_info->cpu_time), proc_info->command);
+			&(proc_info->cpu_time), proc_info->command, &offset);
+		// updates string address
+		current_string_address += offset;
     }
 }
 
@@ -347,6 +383,7 @@ void print_summary(task_counter tasks, WINDOW* summary_window)
 	attron(A_BOLD);
 	wprintw(summary_window, "%d", tasks.valid_counter);
 	attroff(A_BOLD);
+	wrefresh(summary_window);
 	wprintw(summary_window, " total,\t");
 	
 	attron(A_BOLD);
@@ -372,25 +409,22 @@ void print_summary(task_counter tasks, WINDOW* summary_window)
 	wrefresh(summary_window);
 }
 
-void print_top_table(process_info** proc_info_table, int start_index, WINDOW* process_list_window)
+void print_top_table(process_info** proc_info_table, int num_proc, int start_index, WINDOW* process_list_window)
 {	
-	//TODO: calculate this based on window size
-	int max_process = 15;
-	int row = 0;
+	int max_process = 0, max_columns = 0;
+	max_columns++;
+	getmaxyx(process_list_window, max_process, max_columns);
 	process_info* proc_info;
 	char * time_string;
-	for(int i = start_index; i < max_process; i++)
+	for(int i = start_index; i < (start_index + max_process - 1) && i < num_proc; i++)
 	{	
-		//TODO: do right calculus
-		row = i;
 		proc_info = proc_info_table[i];
 		time_string = format_time(proc_info->cpu_time);
-		mvwprintw(process_list_window, row, 0, "%4d\t%-9s\t%3d\t%3d\t%c\t%3.2f\t%9s\t%s\n", proc_info->pid, 
+		mvwprintw(process_list_window, i - start_index, 0, "%4d\t%-9s\t%3d\t%3d\t%c\t%3.2f\t%9s\t%s\n", proc_info->pid, 
 			proc_info->user_name, proc_info->priority, proc_info->nice, proc_info->state, 
 			proc_info->cpu_percentage, time_string, proc_info->command);
 		free(time_string);
 	}
-	
 
 	wrefresh(process_list_window);
 }

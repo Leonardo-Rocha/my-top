@@ -9,8 +9,7 @@ RC = ./src
 #
 #
 #-Wall:			All of the `-W' options combined (all warnings on)
-
-CCOPTS = -Wall -g -O2 
+CCOPTS = -Wall -g
 NCURSES = -lncurses
 
 # Makefile targets

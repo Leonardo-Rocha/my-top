@@ -18,11 +18,13 @@
 
 char error_buffer[BUFFER_SIZE];
 
+/* Execs the file in the given path using args. */
+void exec_module(char *file_path, char* args[3]);
+
 int main() 
 {
     pid_t pid_text_interface, pid_process_manager;
     char * args[3];
-    int error = 0;
 	int segment_id;
 	char* shared_memory;
 
@@ -35,7 +37,7 @@ int main()
 
 	/** attach the shared memory segment */
 	shared_memory = (char *) shmat(segment_id, NULL, 0);
-	//printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
+	// printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
 
 	sprintf(args[1],"%d", segment_id);
 
@@ -45,28 +47,26 @@ int main()
     else 
     {   
         pid_process_manager = fork();
-        if(pid_text_interface == 0) 
-        {
+        if(pid_process_manager == 0) 
             exec_module(PROCESS_MANAGER_FILE, args);
-        }           
 
         waitpid(pid_text_interface, NULL, 0);
-        kill(PROCESS_MANAGER_FILE, SIGKILL);
-
-        /** now detach the shared memory segment */ 
-        if (shmdt(shared_memory) == -1) 
-        {
-            fprintf(stderr, "Unable to detach\n");
-        }
-
-        /** now remove the shared memory segment */
-        shmctl(segment_id, IPC_RMID, NULL); 
+        kill(pid_process_manager, SIGKILL);
     }
+
+    /** now detach the shared memory segment */ 
+    if (shmdt(shared_memory) == -1) 
+    {
+        fprintf(stderr, "Unable to detach\n");
+    }
+
+    /** now remove the shared memory segment */
+    shmctl(segment_id, IPC_RMID, NULL); 
 	
 	return 0;
 }
 
-void exec_module(const char *file_path, char* args[3])
+void exec_module(char *file_path, char* args[3])
 {
     args[0] = file_path;
 

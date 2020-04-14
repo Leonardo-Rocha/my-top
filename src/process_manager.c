@@ -508,12 +508,12 @@ void write_info_in_memory(task_counter tasks, process_info** process_info_table,
     sprintf(shared_memory, "%u %u %u %u %u ", tasks.running_counter, tasks.sleeping_counter, 
         tasks.stopped_counter, tasks.valid_counter, tasks.zombie_counter);
     // loop through process_info_table
-    for(int i = 0; i < tasks.valid_counter; i++) 
+    for(int i = 0; i < tasks.valid_counter - 1; i++) 
     {
         // write every row
         process_info* proc_info = process_info_table[i];
         sprintf(shared_memory, "%d %s %d %d %c %3.2f %u %s\n", proc_info->pid, proc_info->user_name,proc_info->priority, 
-            proc_info->nice, proc_info->state, proc_info->cpu_percentage, proc_info->cpu_time * 100/sysconf(_SC_CLK_TCK), 
+            proc_info->nice, proc_info->state, proc_info->cpu_percentage, (unsigned) (proc_info->cpu_time * 100/sysconf(_SC_CLK_TCK)), 
             proc_info->command);
     }
 }
@@ -536,7 +536,7 @@ void print_process_info_table(process_info **proc_info_table, task_counter tasks
         fprintf(output, "%d %s %d %d %c %3.2f %u %s\n", proc_info_table[i]->pid, 
             proc_info_table[i]->user_name, proc_info_table[i]->priority, proc_info_table[i]->nice,
             proc_info_table[i]->state,proc_info_table[i]->cpu_percentage,
-            proc_info_table[i]->cpu_time*100/sysconf(_SC_CLK_TCK), proc_info_table[i]->command);      
+            (unsigned) (proc_info_table[i]->cpu_time*100/sysconf(_SC_CLK_TCK)), proc_info_table[i]->command);      
         
     fclose(write_file);
 }
