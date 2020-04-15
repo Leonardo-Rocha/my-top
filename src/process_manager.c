@@ -63,7 +63,7 @@ char error_buffer[BUFFER_SIZE];
 /* This method returns a list of process_info and updates the task counter. */
 process_info** proc_table_generator(task_counter *tasks, unsigned short access_point);
 
-/* Read the stat of a single process and return it if was successful. Returns null otherwise. */
+/* Reads the stat of a single process and return it if was successful. Returns null otherwise. */
 process_info* read_proc_stat(const char * stat_file);
 
 /* Reads the username of a proc by searching for the uid in /status and writes it in proc_info. */
@@ -120,6 +120,7 @@ void write_info_in_memory(task_counter tasks, process_info** process_info_table,
 /* Print all process with a pretty format. Prints to the stdout if write_to_file == 0. */
 void print_process_info_table(process_info **proc_info_table, task_counter tasks, short write_to_file);
 
+/* Global variable used to store number of cpu's in the system, used in the cpu usage calculation. */
 unsigned int num_cpus;
 
 int main(int argc, char *argv[]) 
@@ -136,11 +137,9 @@ int main(int argc, char *argv[])
     }
 
 	memory_segment_id = atoi(argv[1]);
-    // printf("\nSegment ID in process manager : %d\n", memory_segment_id);
 
 	/** attach the shared memory segment */
 	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
-	// printf("shared memory segment %d attached at address %p\n", memory_segment_id, shared_memory);
 
     num_cpus = get_num_cpus();
 

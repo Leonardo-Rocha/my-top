@@ -37,7 +37,6 @@ int main()
 
 	/** attach the shared memory segment */
 	shared_memory = (char *) shmat(segment_id, NULL, 0);
-	// printf("shared memory segment %d attached at address %p\n", segment_id, shared_memory);
 
 	sprintf(args[1],"%d", segment_id);
 

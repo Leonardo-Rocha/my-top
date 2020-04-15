@@ -41,25 +41,28 @@ char error_buffer[BUFFER_SIZE];
 //void init_win_params(WIN *p_win);
 //void print_win_params(WIN *p_win);
 
+/* Read tasks counters that will be printed in the summary from the shared memory, and assign then in a struct.*/
 void read_summary_from_memory(task_counter* tasks, char* shared_memory);
 
+/* Reads num_proc processes from the memory and assign to the process_info_table. */
 void read_process_list_from_memory(process_info** process_info_table, char* shared_memory, int num_proc);
 
-void read_summary_from_file(FILE* read_file, task_counter* tasks);
-
-void read_processes_from_file(FILE* read_file, int num_proc, process_info** process_info_table);
-
+/* Prints the summary in the summary_window. */
 void print_summary(task_counter tasks, WINDOW* summary_window);
 
+/* Prints the biggest possible quantity of processes in the process_list_window. This quantity is based on the window size. */
 void print_top_table(process_info** proc_info_table, int num_proc, int start_index, WINDOW* process_list_window);
 
-/* formats seconds to minutes:seconds.cents */
+/* Formats seconds to minutes:seconds.cents */
 char* format_time(unsigned int time);
 
+/* First allocation of the process list, from the initial number of processes collected.*/
 process_info** allocate_proc_list(int num_proc);
 
+/* Resizes the process list conforming to the new size, freeing or allocating memory space as needed.*/
 process_info ** reallocate_proc_list(process_info ** proc_info_table, int num_proc, int previous_num_proc);
 
+/* Frees all processes in the process_info_table. */
 void clear_process_info_table(process_info ** process_info_table, int table_size);
 
 /* Calls fopen and returns zero if the file was opened succesfully and -1 on error, also printing to stderr. */
@@ -68,8 +71,14 @@ int handle_file_open(FILE **file_stream, const char* mode, const char *file_name
 /* Test allocs and reallocs of process_list_info */
 void test_allocations();
 
-/*								*/
+/*	Test the capability to reallocate the process list for different sizes.*/
 void test_sucessive_reads();
+
+/* Similar to read_summary_from_memory but used for debugging purposes. */
+void read_summary_from_file(FILE* read_file, task_counter* tasks);
+
+/* Similar to read_process_list_from_memory but used for debugging purposes. */
+void read_processes_from_file(FILE* read_file, int num_proc, process_info** process_info_table);
 
 int main(int argc, char *argv[])
 {	
@@ -85,7 +94,7 @@ int main(int argc, char *argv[])
 	long strtol_result;
 	pid_t pid_to_kill;
 	char read_string[32] = "\n";
-	// FILE* read_file;
+	// FILE* read_file; 						/*For debugging purposes, when reading from a file.*/
 
     if(argc != 2) 
 	{
@@ -93,12 +102,11 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
+	// Translates the argument from string to int
 	memory_segment_id = atoi(argv[1]);
-    // printf("\nSegment ID in process manager : %d\n", memory_segment_id);
 
 	/** attach the shared memory segment */
 	shared_memory = (char *) shmat(memory_segment_id, NULL, 0);
-	// printf("shared memory segment %d attached at address %p\n", memory_segment_id, shared_memory);
 	
 	WINDOW *summary_window;
     WINDOW *process_list_window; 
@@ -128,23 +136,19 @@ int main(int argc, char *argv[])
 	refresh();
 	attroff(COLOR_PAIR(HEADER_COLOR));
 
-	//Wait process_manager write info in memory
+	// Wait process_manager write info in memory
 	sleep(2);
 	
 	read_summary_from_memory(&tasks, shared_memory); 
-	// handle_file_open(&read_file, "r", INPUT_FILE_PATH);
-	// read_summary_from_file(read_file, &tasks);
 	process_info_table = allocate_proc_list(tasks.valid_counter);
 	previous_num_proc = tasks.valid_counter;
 	while(1)
 	{	
 		read_summary_from_memory(&tasks, shared_memory);
-		//read_summary_from_file(read_file, &tasks);
 		process_info_table = reallocate_proc_list(process_info_table, tasks.valid_counter, previous_num_proc);
 		previous_num_proc = tasks.valid_counter;
 
 		read_process_list_from_memory(process_info_table, shared_memory, tasks.valid_counter);
-		// read_processes_from_file(read_file, tasks.valid_counter, process_info_table);
 
 		getmaxyx(process_list_window, max_rows, max_cols);
 		print_summary(tasks, summary_window);
@@ -152,7 +156,6 @@ int main(int argc, char *argv[])
 		
 		ch = getch();
 		
-		// TODO: corrigir linha não limpando. 
 		// buffer verification for commands like kill, arrow keys and quit
 		switch(ch)
 		{	
@@ -165,11 +168,11 @@ int main(int argc, char *argv[])
 					processes_start_y++;
 				break;
 			case KEY_LEFT:
-				//TODO: ir sumindo com as colunas da direita conforme 
+				// TODO: ir sumindo com as colunas da direita conforme 
 				// decrease process_start_y
 				break;
 			case KEY_RIGHT:
-				// SUMIR COM AS DA ESQUERDA
+				// TODO: sumir com as colunas da esquerda
 				// increase process_start_x
 				break;
 			case 'k':
@@ -221,6 +224,7 @@ int main(int argc, char *argv[])
 			break;
 		refresh();
 	}
+	
 	clear_process_info_table(process_info_table, tasks.valid_counter);
 	
 	delwin(summary_window);	
@@ -233,9 +237,7 @@ int main(int argc, char *argv[])
     {
 		fprintf(stderr, "Unable to detach\n");
 	}
-
-	// fclose(read_file);
-
+	
 	return 0;
 }
 
@@ -323,10 +325,12 @@ void test_allocations()
 	process_info** proc_info_table =  allocate_proc_list(num_procs_test);
 	for(int i = 0; i < num_procs_test; i++)
 		assert(proc_info_table[i] != NULL);
+	
 	proc_info_table = reallocate_proc_list(proc_info_table, num_procs_test + 50, num_procs_test);
 	num_procs_test = num_procs_test + 50;
 	for(int i = 0; i < num_procs_test; i++)
 		assert(proc_info_table[i] != NULL);
+	
 	proc_info_table = reallocate_proc_list(proc_info_table, num_procs_test - 100, num_procs_test);
 	num_procs_test = num_procs_test - 100;
 	for(int i = 0; i < num_procs_test; i++)
