@@ -15,3 +15,7 @@ Use arrow up/down ou the mouse scroll to scroll through the processes list. The 
 ### Kill
 
 Press 'k' to start kill command. This commands sends the signal SIGKILL to the given PID. By default the process with highest CPU usage is chosen, by typing the user can enter another PID.
+
+### Quit
+
+Press 'q' or CTRL+C to quit.
