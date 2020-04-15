@@ -14,7 +14,10 @@ NCURSES = -lncurses
 
 # Makefile targets
 
-all: my_top text_interface process_manager run_top
+all: dir my_top text_interface process_manager run_top
+
+dir: 
+	mkdir -p $(BU)
 
 my_top: $(RC)/my_top.c
 	$(CC) $(CCOPTS) -o $(BU)/$@ $<

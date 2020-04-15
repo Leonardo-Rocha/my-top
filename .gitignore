@@ -56,3 +56,5 @@ build/*
 
 # Vscode files
 .vscode/*
+
+output.txt

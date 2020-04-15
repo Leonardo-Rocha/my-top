@@ -386,7 +386,7 @@ void read_proc_username(process_info* proc_info, char *stat_file)
             strcpy(proc_info->user_name, "UNKNOWN");
         else {
             errno = getpwuid_error;
-            perror("getpwnam_r");
+            // perror("getpwnam_r");
         }
     }
     else
@@ -437,7 +437,7 @@ int handle_file_open(FILE **file_stream, const char* mode, const char *file_name
 		if (*file_stream == NULL) 
 		{
 			snprintf(error_buffer, BUFFER_SIZE, "Could not open file \"%s\"", file_name);
-			perror(error_buffer);
+			// perror(error_buffer);
 			return -1;
 		}
 	}	
@@ -479,7 +479,7 @@ long long unsigned cpu_total_time()
     if(file_open_return == -1)
     {   
         snprintf(error_buffer, BUFFER_SIZE, "Could not calculate CPU total time => cpu_total_time()");
-		perror(error_buffer);
+		// perror(error_buffer);
         return -1;
     }
 

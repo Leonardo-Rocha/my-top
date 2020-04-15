@@ -7,6 +7,7 @@
 #include <sys/shm.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <limits.h>
 
 #define INPUT_FILE_PATH  "output.txt"
 #define COMMAND_MAX      64
@@ -183,7 +184,8 @@ int main(int argc, char *argv[])
 				echo();
 				scanw("%s", read_string);
 				strtol_result = strtol(read_string, NULL, 10);
-				if(strtol_result)
+				// if it's a valid strtol result
+				if(strtol_result > 0 && strtol_result != LONG_MAX && strtol_result != LONG_MIN)
 				{	
 					pid_to_kill = (pid_t) strtol_result;
 					kill(pid_to_kill, SIGKILL);
@@ -192,7 +194,7 @@ int main(int argc, char *argv[])
 					mvprintw(1, 0, "SIGKILL sent to PID %d", pid_to_kill);
 					read_string[0] = '\0';
 				}
-				else if(strtol_result == 0 || read_string[0] == '\n') 
+				else if(strtol_result == 0 && read_string[0] == '\0') 
 				{
 					kill(pid_to_kill, SIGKILL);
 					move(1, 0);
@@ -204,6 +206,7 @@ int main(int argc, char *argv[])
 					move(1, 0);
 					clrtoeol();
 					mvprintw(1, 0, "Invalid integer!");
+					read_string[0] = '\0';
 				}
 				// back to default settings				
 				noecho();
